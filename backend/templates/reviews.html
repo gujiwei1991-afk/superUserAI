@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+
+{% block title %}待审核项目{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <div>
+        <h1 class="text-3xl font-semibold text-slate-900">待审核项目</h1>
+        <p class="mt-2 text-sm text-slate-500">当前处于 reviewing 状态的需求列表。</p>
+    </div>
+
+    <div class="overflow-hidden rounded-3xl bg-white shadow-sm ring-1 ring-slate-200">
+        <table class="min-w-full divide-y divide-slate-200 text-sm">
+            <thead class="bg-slate-50 text-left text-slate-500">
+                <tr>
+                    <th class="px-6 py-4 font-medium">ID</th>
+                    <th class="px-6 py-4 font-medium">标题</th>
+                    <th class="px-6 py-4 font-medium">仓库</th>
+                    <th class="px-6 py-4 font-medium">创建时间</th>
+                    <th class="px-6 py-4 font-medium">操作</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+                {% for project in projects %}
+                <tr class="hover:bg-slate-50">
+                    <td class="px-6 py-4 font-medium text-slate-900">#{{ project.id }}</td>
+                    <td class="px-6 py-4 text-slate-700">{{ project.title }}</td>
+                    <td class="px-6 py-4 text-slate-500">{{ project.repo.name if project.repo else '-' }}</td>
+                    <td class="px-6 py-4 text-slate-500">{{ project.created_at.strftime("%Y-%m-%d %H:%M:%S") }}</td>
+                    <td class="px-6 py-4">
+                        <a href="/admin/reviews/{{ project.id }}" class="rounded-full bg-slate-900 px-3 py-1.5 text-xs font-medium text-white">查看详情</a>
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="5" class="px-6 py-10 text-center text-slate-500">暂无待审核项目。</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

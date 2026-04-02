@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+
+{% block title %}仪表盘{% endblock %}
+
+{% block content %}
+<div class="space-y-8">
+    <div>
+        <h1 class="text-3xl font-semibold text-slate-900">项目仪表盘</h1>
+        <p class="mt-2 text-sm text-slate-500">快速查看当前项目总体状态。</p>
+    </div>
+
+    <div class="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
+        <div class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+            <p class="text-sm text-slate-500">项目总数</p>
+            <p class="mt-4 text-4xl font-semibold text-slate-900">{{ stats.total }}</p>
+        </div>
+        <div class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-amber-200">
+            <p class="text-sm text-amber-700">待审核</p>
+            <p class="mt-4 text-4xl font-semibold text-amber-900">{{ stats.reviewing }}</p>
+        </div>
+        <div class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-violet-200">
+            <p class="text-sm text-violet-700">开发中</p>
+            <p class="mt-4 text-4xl font-semibold text-violet-900">{{ stats.developing }}</p>
+        </div>
+        <div class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-emerald-200">
+            <p class="text-sm text-emerald-700">已完成</p>
+            <p class="mt-4 text-4xl font-semibold text-emerald-900">{{ stats.completed }}</p>
+        </div>
+    </div>
+</div>
+{% endblock %}

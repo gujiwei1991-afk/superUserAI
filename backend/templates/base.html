@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}SuperUserAI Admin{% endblock %}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-100 text-slate-900">
+    {% if not hide_nav %}
+    <nav class="border-b border-slate-200 bg-white/95 backdrop-blur">
+        <div class="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
+            <div class="flex items-center gap-6">
+                <a href="/admin/dashboard" class="text-lg font-semibold text-slate-900">SuperUserAI Admin</a>
+                <div class="flex flex-wrap items-center gap-2 text-sm">
+                    <a href="/admin/dashboard" class="rounded-full px-3 py-1.5 {% if active_page == 'dashboard' %}bg-slate-900 text-white{% else %}text-slate-600 hover:bg-slate-100{% endif %}">仪表盘</a>
+                    <a href="/admin/reviews" class="rounded-full px-3 py-1.5 {% if active_page == 'reviews' %}bg-slate-900 text-white{% else %}text-slate-600 hover:bg-slate-100{% endif %}">待审核</a>
+                    <a href="/admin/projects" class="rounded-full px-3 py-1.5 {% if active_page == 'projects' %}bg-slate-900 text-white{% else %}text-slate-600 hover:bg-slate-100{% endif %}">项目</a>
+                    <a href="/admin/repos" class="rounded-full px-3 py-1.5 {% if active_page == 'repos' %}bg-slate-900 text-white{% else %}text-slate-600 hover:bg-slate-100{% endif %}">仓库</a>
+                    <a href="/admin/settings" class="rounded-full px-3 py-1.5 {% if active_page == 'settings' %}bg-slate-900 text-white{% else %}text-slate-600 hover:bg-slate-100{% endif %}">设置</a>
+                </div>
+            </div>
+            {% if current_admin %}
+            <div class="text-sm text-slate-500">管理员：{{ current_admin.username or current_admin.sub }}</div>
+            {% endif %}
+        </div>
+    </nav>
+    {% endif %}
+
+    <main class="{% if hide_nav %}flex min-h-screen items-center justify-center px-6 py-12{% else %}mx-auto max-w-7xl px-6 py-8{% endif %}">
+        {% block content %}{% endblock %}
+    </main>
+</body>
+</html>

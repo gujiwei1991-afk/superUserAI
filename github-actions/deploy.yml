@@ -1,0 +1,42 @@
+# .github/workflows/deploy.yml
+# SuperUserAI 自动部署模板
+# 将此文件放到目标仓库的 .github/workflows/ 目录下
+
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t ${{ github.repository }}:latest .
+
+      - name: Deploy to server via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_KEY }}
+          script: |
+            cd ${{ secrets.DEPLOY_PATH }}
+            docker compose pull || true
+            docker compose up -d --build
+            sleep 5
+            curl -sf http://localhost:${{ secrets.APP_PORT }}/health || exit 1
+
+      - name: Notify SuperUserAI backend
+        if: always()
+        run: |
+          curl -X POST "${{ secrets.SUPERUSERAI_BACKEND_URL }}/api/webhooks/github"             -H "Content-Type: application/json"             -H "X-GitHub-Event: workflow_run"             -d '{
+              "action": "completed",
+              "workflow_run": {
+                "conclusion": "${{ job.status == '"'"'success'"'"' && '"'"'success'"'"' || '"'"'failure'"'"' }}",
+                "head_branch": "${{ github.head_ref || github.ref_name }}"
+              }
+            }'

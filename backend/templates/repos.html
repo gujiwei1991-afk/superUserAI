@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+
+{% block title %}仓库管理{% endblock %}
+
+{% block content %}
+<div class="space-y-8">
+    <div>
+        <h1 class="text-3xl font-semibold text-slate-900">仓库管理</h1>
+        <p class="mt-2 text-sm text-slate-500">维护可创建项目的 GitHub 仓库配置。</p>
+    </div>
+
+    {% if message %}
+    <div class="rounded-2xl border px-4 py-3 text-sm {% if message_type == 'warning' %}border-amber-200 bg-amber-50 text-amber-700{% elif message_type == 'error' %}border-rose-200 bg-rose-50 text-rose-700{% else %}border-emerald-200 bg-emerald-50 text-emerald-700{% endif %}">
+        {{ message }}
+    </div>
+    {% endif %}
+
+    {% if error %}
+    <div class="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+        {{ error }}
+    </div>
+    {% endif %}
+
+    <section class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+        <h2 class="text-lg font-semibold text-slate-900">添加仓库</h2>
+        <form method="post" action="/admin/repos" class="mt-6 grid gap-4 md:grid-cols-2">
+            <label class="block">
+                <span class="mb-2 block text-sm font-medium text-slate-700">仓库别名</span>
+                <input type="text" name="name" value="{{ form_data.name or '' }}" class="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 outline-none focus:border-slate-400 focus:bg-white" placeholder="frontend" required>
+            </label>
+            <label class="block">
+                <span class="mb-2 block text-sm font-medium text-slate-700">GitHub Owner</span>
+                <input type="text" name="github_owner" value="{{ form_data.github_owner or '' }}" class="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 outline-none focus:border-slate-400 focus:bg-white" placeholder="your-org" required>
+            </label>
+            <label class="block">
+                <span class="mb-2 block text-sm font-medium text-slate-700">GitHub Repo</span>
+                <input type="text" name="github_repo" value="{{ form_data.github_repo or '' }}" class="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 outline-none focus:border-slate-400 focus:bg-white" placeholder="your-repo" required>
+            </label>
+            <label class="block">
+                <span class="mb-2 block text-sm font-medium text-slate-700">GitHub Token</span>
+                <input type="password" name="github_token" class="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 outline-none focus:border-slate-400 focus:bg-white" placeholder="留空则使用系统默认 Token" autocomplete="new-password">
+                <span class="mt-2 block text-xs text-slate-500">可选，留空则使用系统默认 Token。</span>
+            </label>
+            <label class="block">
+                <span class="mb-2 block text-sm font-medium text-slate-700">部署服务器</span>
+                <input type="text" name="deploy_server" value="{{ form_data.deploy_server or '' }}" class="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 outline-none focus:border-slate-400 focus:bg-white" placeholder="192.168.1.10">
+            </label>
+            <label class="block md:col-span-2">
+                <span class="mb-2 block text-sm font-medium text-slate-700">Webhook Callback URL</span>
+                <input type="text" name="webhook_callback_url" value="{{ webhook_callback_url }}" class="w-full rounded-2xl border border-slate-200 bg-slate-100 px-4 py-3 text-slate-500 outline-none" readonly>
+                <span class="mt-2 block text-xs text-slate-500">保存仓库后会自动尝试创建 GitHub Webhook。</span>
+            </label>
+            <label class="block md:col-span-2">
+                <span class="mb-2 block text-sm font-medium text-slate-700">部署配置 JSON</span>
+                <textarea name="deploy_config" rows="5" class="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 outline-none focus:border-slate-400 focus:bg-white" placeholder='{"branch":"main","path":"/srv/app"}'>{{ form_data.deploy_config or '' }}</textarea>
+            </label>
+            <div class="md:col-span-2">
+                <button type="submit" class="rounded-2xl bg-slate-900 px-5 py-3 text-sm font-medium text-white hover:bg-slate-800">
+                    添加仓库
+                </button>
+            </div>
+        </form>
+    </section>
+
+    <section class="overflow-hidden rounded-3xl bg-white shadow-sm ring-1 ring-slate-200">
+        <table class="min-w-full divide-y divide-slate-200 text-sm">
+            <thead class="bg-slate-50 text-left text-slate-500">
+                <tr>
+                    <th class="px-6 py-4 font-medium">别名</th>
+                    <th class="px-6 py-4 font-medium">GitHub</th>
+                    <th class="px-6 py-4 font-medium">部署服务器</th>
+                    <th class="px-6 py-4 font-medium">部署配置</th>
+                    <th class="px-6 py-4 font-medium">Webhook 状态</th>
+                    <th class="px-6 py-4 font-medium">操作</th>
+                    <th class="px-6 py-4 font-medium">创建时间</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+                {% for repo in repos %}
+                <tr class="align-top hover:bg-slate-50">
+                    <td class="px-6 py-4 font-medium text-slate-900">{{ repo.name }}</td>
+                    <td class="px-6 py-4 text-slate-700">{{ repo.github_full_name }}</td>
+                    <td class="px-6 py-4 text-slate-500">{{ repo.deploy_server or '-' }}</td>
+                    <td class="px-6 py-4">
+                        <pre class="max-w-md overflow-x-auto rounded-2xl bg-slate-100 p-3 text-xs text-slate-700">{% if repo.deploy_config %}{{ repo.deploy_config | tojson(indent=2) }}{% else %}-{% endif %}</pre>
+                    </td>
+                    <td class="px-6 py-4">
+                        {% if webhook_statuses.get(repo.id) %}
+                        <span class="inline-flex rounded-full bg-emerald-100 px-3 py-1 text-xs font-medium text-emerald-700 ring-1 ring-inset ring-emerald-200">✅ 已配置</span>
+                        {% else %}
+                        <span class="inline-flex rounded-full bg-rose-100 px-3 py-1 text-xs font-medium text-rose-700 ring-1 ring-inset ring-rose-200">❌ 未配置</span>
+                        {% endif %}
+                    </td>
+                    <td class="px-6 py-4">
+                        <form method="post" action="/admin/repos/{{ repo.id }}/webhook">
+                            <button type="submit" class="rounded-2xl border border-slate-300 px-4 py-2 text-xs font-medium text-slate-700 hover:border-slate-400 hover:bg-slate-100">
+                                Set Webhook
+                            </button>
+                        </form>
+                    </td>
+                    <td class="px-6 py-4 text-slate-500">{{ repo.created_at.strftime("%Y-%m-%d %H:%M:%S") }}</td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="7" class="px-6 py-10 text-center text-slate-500">暂无仓库配置。</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </section>
+</div>
+{% endblock %}

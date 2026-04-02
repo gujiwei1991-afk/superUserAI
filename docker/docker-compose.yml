@@ -1,0 +1,79 @@
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: superuserai
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - superuserai-network
+
+  redis:
+    image: redis:7
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - superuserai-network
+
+  backend:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/superuserai
+      - REDIS_URL=redis://redis:6379
+      - VWORK_API_HOST=${VWORK_API_HOST:-host.docker.internal}
+      - VWORK_API_PORT=${VWORK_API_PORT:-8989}
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+      - GITHUB_WEBHOOK_SECRET=${GITHUB_WEBHOOK_SECRET:-}
+      - LLM_PROVIDER=${LLM_PROVIDER:-openai}
+      - LLM_API_KEY=${LLM_API_KEY:-}
+      - LLM_BASE_URL=${LLM_BASE_URL:-}
+      - LLM_MODEL=${LLM_MODEL:-}
+      - JWT_SECRET=${JWT_SECRET:-change-me-in-production}
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - superuserai-network
+
+  dev-agent:
+    build:
+      context: ..
+      dockerfile: dev-agent/Dockerfile
+    restart: unless-stopped
+    environment:
+      - BACKEND_URL=http://backend:8000
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+      - LLM_PROVIDER=${LLM_PROVIDER:-openai}
+      - LLM_API_KEY=${LLM_API_KEY:-}
+      - LLM_BASE_URL=${LLM_BASE_URL:-}
+      - LLM_MODEL=${LLM_MODEL:-}
+      - WORKSPACE_DIR=/workspace
+    volumes:
+      - dev_workspace:/workspace
+    depends_on:
+      - backend
+    networks:
+      - superuserai-network
+
+volumes:
+  postgres_data:
+  redis_data:
+  dev_workspace:
+
+networks:
+  superuserai-network:
+    name: superuserai-network
