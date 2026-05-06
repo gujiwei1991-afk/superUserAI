@@ -24,7 +24,7 @@ class MessageHandler:
         self.pm_agent = PMAgent()
 
     async def handle(self, wechat_user_id: str, command: Command) -> str:
-        reply_sent = False
+        reply = "抱歉，当前处理消息时出现异常，请稍后再试。"
         try:
             user = await self.session_manager.get_or_create_user(wechat_user_id)
             session = await self.session_manager.get_session(user)
@@ -49,21 +49,20 @@ class MessageHandler:
                 case _:
                     reply = self._handle_help()
 
-            await self.wechat.send_text(wechat_user_id, reply)
-            reply_sent = True
             await self.db.commit()
-            return reply
         except Exception:
             logger.exception("Failed to handle message for wechat_user_id=%s", wechat_user_id)
             await self.db.rollback()
 
-            error_reply = "抱歉，当前处理消息时出现异常，请稍后再试。"
-            if not reply_sent:
-                try:
-                    await self.wechat.send_text(wechat_user_id, error_reply)
-                except Exception:
-                    logger.exception("Failed to send fallback message to wechat_user_id=%s", wechat_user_id)
-            return error_reply
+        try:
+            await self.wechat.send_text(wechat_user_id, reply)
+        except Exception:
+            logger.exception(
+                "Failed to send WeChat reply for wechat_user_id=%s (DB state already persisted)",
+                wechat_user_id,
+            )
+
+        return reply
 
     async def _handle_new_project(
         self,

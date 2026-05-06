@@ -47,7 +47,19 @@ class GitOps:
         self._run_git(["checkout", branch_name], cwd=repo_dir)
         self._run_git(["config", "user.name", "SuperUserAI Dev Agent"], cwd=repo_dir)
         self._run_git(["config", "user.email", "dev-agent@superuserai.local"], cwd=repo_dir)
+
+        self._ensure_gitignore(repo_dir)
         self._run_git(["add", "-A"], cwd=repo_dir)
+        # Drop build artefacts / dependency caches even if Claude already added them.
+        self._run_git(
+            [
+                "rm", "-rf", "--cached", "--ignore-unmatch", "--quiet",
+                "node_modules", "dist", "build", ".next", ".vite", "coverage",
+                ".cache", ".turbo", ".parcel-cache", "venv", ".venv", "__pycache__",
+            ],
+            cwd=repo_dir,
+            check=False,
+        )
 
         status = self._run_git(["status", "--short"], cwd=repo_dir)
         if not status.stdout.strip():
@@ -56,6 +68,24 @@ class GitOps:
         self._run_git(["commit", "-m", commit_message], cwd=repo_dir)
         self._run_git(["push", "-u", "origin", branch_name], cwd=repo_dir)
         return True
+
+    @staticmethod
+    def _ensure_gitignore(repo_dir: Path) -> None:
+        required_patterns = [
+            "node_modules/", "dist/", "build/", ".next/", ".vite/",
+            "coverage/", ".cache/", ".turbo/", ".parcel-cache/",
+            "venv/", ".venv/", "__pycache__/", "*.pyc",
+            ".env", ".env.local", ".DS_Store",
+        ]
+        gitignore = repo_dir / ".gitignore"
+        existing = gitignore.read_text(encoding="utf-8") if gitignore.exists() else ""
+        existing_lines = {line.strip() for line in existing.splitlines() if line.strip()}
+        missing = [p for p in required_patterns if p not in existing_lines]
+        if not missing:
+            return
+        prefix = existing.rstrip() + ("\n\n" if existing.strip() else "")
+        body = "# auto-added by SuperUserAI dev-agent\n" + "\n".join(missing) + "\n"
+        gitignore.write_text(prefix + body, encoding="utf-8")
 
     def checkout_main(self, repo_path: str | Path) -> str:
         repo_dir = Path(repo_path)

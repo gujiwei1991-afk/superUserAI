@@ -16,7 +16,7 @@ ACCESS_TOKEN_COOKIE = "access_token"
 def verify_admin_password(password: str) -> bool:
     if not password:
         return False
-    expected = get_settings().jwt_secret
+    expected = get_settings().admin_password
     return hmac.compare_digest(password, expected)
 
 

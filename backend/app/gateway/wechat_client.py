@@ -29,7 +29,7 @@ class WeChatClient:
         user_id: str,
         title: str,
         desc: str,
-        url: str,
+        target_url: str,
         cover_url: str = "",
     ) -> dict[str, Any]:
         return await self._post(
@@ -38,17 +38,17 @@ class WeChatClient:
                 "user_id": user_id,
                 "title": title,
                 "desc": desc,
-                "url": url,
+                "target_url": target_url,
                 "cover_url": cover_url,
             }
         )
 
-    async def send_file(self, user_id: str, file_path: str) -> dict[str, Any]:
+    async def send_file(self, user_id: str, path: str) -> dict[str, Any]:
         return await self._post(
             {
                 "type": VWorkSendType.SEND_FILE.value,
                 "user_id": user_id,
-                "file_path": file_path,
+                "path": path,
             }
         )
 

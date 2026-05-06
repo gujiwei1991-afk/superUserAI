@@ -10,13 +10,15 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
     )
 
-    backend_url: str = "http://localhost:8000"
+    backend_url: str = "http://localhost:2888"
     github_token: str = ""
     llm_provider: str = "openai"
     llm_api_key: str = ""
     llm_base_url: str = ""
     llm_model: str = ""
     workspace_dir: str = "/tmp/superuserai/workspace"
+    claude_executable: str = "claude"
+    claude_timeout_seconds: int = 1800
 
 
 @lru_cache

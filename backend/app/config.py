@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     llm_api_key: str = ""
     llm_base_url: str = ""
     llm_model: str = ""
+    admin_password: str = "admin123"
     jwt_secret: str = "CHANGE_ME_USE_OPENSSL_RAND_HEX_32"
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 1440

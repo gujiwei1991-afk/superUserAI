@@ -73,7 +73,10 @@ SOURCE_BADGE_META = {
 }
 
 SECRET_SETTING_KEYS = {"llm_api_key", "github_token"}
-LLM_PROVIDER_OPTIONS = ("openai", "claude", "ollama")
+LLM_PROVIDER_OPTIONS = (
+    "openai", "claude", "deepseek", "glm", "moonshot",
+    "siliconflow", "qwen", "ollama",
+)
 
 SETTINGS_GROUPS = [
     {
