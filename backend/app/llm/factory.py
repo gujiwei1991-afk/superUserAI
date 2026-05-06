@@ -3,6 +3,7 @@ from __future__ import annotations
 from app.config import get_settings
 from app.llm.base import BaseLLM
 from app.llm.claude_adapter import ClaudeAdapter
+from app.llm.claude_cli_adapter import ClaudeCLIAdapter
 from app.llm.ollama_adapter import OllamaAdapter
 from app.llm.openai_adapter import OpenAIAdapter
 
@@ -37,6 +38,12 @@ def create_llm(
                 api_key=resolved_api_key,
                 base_url=resolved_base_url or "https://api.anthropic.com",
                 model=configured_model or "claude-sonnet-4-20250514",
+            )
+        case "claude_cli" | "claude-cli" | "claude-code":
+            return ClaudeCLIAdapter(
+                executable=settings.claude_cli_executable,
+                model=configured_model or "claude-cli",
+                timeout=settings.claude_cli_timeout_seconds,
             )
         case "ollama":
             return OllamaAdapter(

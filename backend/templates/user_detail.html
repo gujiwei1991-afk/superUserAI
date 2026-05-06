@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+
+{% block title %}用户 {{ user.wechat_user_id }} - 权限管理{% endblock %}
+
+{% block content %}
+<div class="space-y-8">
+    <div class="flex items-center justify-between gap-4">
+        <div>
+            <a href="/admin/users" class="text-sm text-slate-500 hover:text-slate-700">← 返回用户列表</a>
+            <h1 class="mt-2 text-3xl font-semibold text-slate-900">用户权限管理</h1>
+        </div>
+    </div>
+
+    {% if message %}
+    <div class="rounded-2xl border px-4 py-3 text-sm {% if message_type == 'warning' %}border-amber-200 bg-amber-50 text-amber-700{% elif message_type == 'error' %}border-rose-200 bg-rose-50 text-rose-700{% else %}border-emerald-200 bg-emerald-50 text-emerald-700{% endif %}">
+        {{ message }}
+    </div>
+    {% endif %}
+
+    <section class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+        <h2 class="text-lg font-semibold text-slate-900">基本信息</h2>
+        <dl class="mt-4 grid gap-4 text-sm md:grid-cols-2">
+            <div><dt class="text-slate-500">用户 ID</dt><dd class="mt-1">{{ user.id }}</dd></div>
+            <div><dt class="text-slate-500">企业微信 ID</dt><dd class="mt-1 font-mono text-xs">{{ user.wechat_user_id }}</dd></div>
+            <div><dt class="text-slate-500">昵称</dt><dd class="mt-1">{{ user.nickname or '—' }}</dd></div>
+            <div>
+                <dt class="text-slate-500">角色</dt>
+                <dd class="mt-1">
+                    {% if user.role == 'admin' %}
+                    <span class="inline-flex items-center rounded-full bg-slate-900 px-2.5 py-1 text-xs font-medium text-white">admin</span>
+                    {% else %}
+                    <span class="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700 ring-1 ring-slate-200">user</span>
+                    {% endif %}
+                </dd>
+            </div>
+            <div><dt class="text-slate-500">创建时间</dt><dd class="mt-1">{{ user.created_at.strftime('%Y-%m-%d %H:%M') if user.created_at else '—' }}</dd></div>
+        </dl>
+    </section>
+
+    {% if user.role == 'admin' %}
+    <section class="rounded-3xl border border-amber-200 bg-amber-50 p-6 text-sm text-amber-800">
+        管理员账号默认拥有所有仓库的提需求权限，无需在此处单独授权。
+    </section>
+    {% else %}
+    <section class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+        <div class="flex items-center justify-between">
+            <h2 class="text-lg font-semibold text-slate-900">已授权仓库</h2>
+            <span class="text-sm text-slate-500">共 {{ granted_repos|length }} 个</span>
+        </div>
+        {% if granted_repos %}
+        <ul class="mt-4 divide-y divide-slate-100">
+            {% for r in granted_repos %}
+            <li class="flex items-center justify-between py-3">
+                <div>
+                    <div class="font-medium text-slate-900">{{ r.name }}</div>
+                    <div class="text-xs text-slate-500">{{ r.github_owner }}/{{ r.github_repo }}</div>
+                </div>
+                <form method="post" action="/admin/users/{{ user.id }}/grants/{{ r.id }}/revoke">
+                    <button type="submit" class="rounded-2xl border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-medium text-rose-700 hover:bg-rose-100" onclick="return confirm('确定撤销此用户对仓库 {{ r.name }} 的权限？')">撤销</button>
+                </form>
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <p class="mt-4 text-sm text-slate-400">该用户尚未获得任何仓库的提需求权限。</p>
+        {% endif %}
+
+        {% if available_repos %}
+        <form method="post" action="/admin/users/{{ user.id }}/grants" class="mt-6 flex flex-wrap items-end gap-3 border-t border-slate-100 pt-6">
+            <label class="block flex-1 min-w-[200px]">
+                <span class="mb-2 block text-sm font-medium text-slate-700">添加仓库权限</span>
+                <select name="repo_id" class="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 outline-none focus:border-slate-400 focus:bg-white" required>
+                    <option value="">选择要授权的仓库</option>
+                    {% for r in available_repos %}
+                    <option value="{{ r.id }}">{{ r.name }} ({{ r.github_owner }}/{{ r.github_repo }})</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <button type="submit" class="rounded-2xl bg-slate-900 px-5 py-3 text-sm font-medium text-white hover:bg-slate-800">授权</button>
+        </form>
+        {% else %}
+        <p class="mt-6 border-t border-slate-100 pt-6 text-sm text-slate-400">已授权所有可用仓库。</p>
+        {% endif %}
+    </section>
+    {% endif %}
+</div>
+{% endblock %}

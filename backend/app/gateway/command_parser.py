@@ -55,6 +55,8 @@ def parse_command(content: str) -> Command:
             return Command(type="status")
         case "#列表":
             return Command(type="list")
+        case "#我的仓库" | "#repos":
+            return Command(type="my_repos")
         case "#帮助" | "#help":
             return Command(type="help")
         case _:

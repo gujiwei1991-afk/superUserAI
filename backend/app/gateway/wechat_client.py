@@ -52,6 +52,29 @@ class WeChatClient:
             }
         )
 
+    async def list_internal_friends(
+        self,
+        page_size: int = 100,
+        max_pages: int = 200,
+    ) -> list[dict[str, Any]]:
+        """拉取所有内部好友（同事）。vworkApi type=2001, 自动翻页直到取尽。"""
+        all_items: list[dict[str, Any]] = []
+        page_num = 1
+        while page_num <= max_pages:
+            payload = {"type": 2001, "page_num": page_num, "page_size": page_size}
+            response = await self._post(payload)
+            data = response.get("data") or {}
+            items = data.get("list") or []
+            if not isinstance(items, list):
+                break
+            all_items.extend(item for item in items if isinstance(item, dict))
+
+            total_page = data.get("total_page")
+            if not isinstance(total_page, int) or page_num >= total_page or not items:
+                break
+            page_num += 1
+        return all_items
+
     async def _post(self, payload: dict[str, Any]) -> dict[str, Any]:
         if not hasattr(self, "_client"):
             self._client = httpx.AsyncClient(timeout=10.0)

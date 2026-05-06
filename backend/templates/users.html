@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+
+{% block title %}用户管理{% endblock %}
+
+{% block content %}
+<div class="space-y-8">
+    <div class="flex items-start justify-between gap-4">
+        <div>
+            <h1 class="text-3xl font-semibold text-slate-900">用户管理</h1>
+            <p class="mt-2 text-sm text-slate-500">查看所有企业微信用户并配置仓库提需求权限。</p>
+        </div>
+        <form method="post" action="/admin/users/sync" onsubmit="return confirm('将从企业微信拉取所有内部同事，未在系统里的用户会自动创建（role=user）。继续？')">
+            <button type="submit" class="rounded-2xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800">
+                从企微同步用户
+            </button>
+        </form>
+    </div>
+
+    {% if message %}
+    <div class="rounded-2xl border px-4 py-3 text-sm {% if message_type == 'warning' %}border-amber-200 bg-amber-50 text-amber-700{% elif message_type == 'error' %}border-rose-200 bg-rose-50 text-rose-700{% else %}border-emerald-200 bg-emerald-50 text-emerald-700{% endif %}">
+        {{ message }}
+    </div>
+    {% endif %}
+
+    <section class="overflow-hidden rounded-3xl bg-white shadow-sm ring-1 ring-slate-200">
+        <table class="min-w-full divide-y divide-slate-200 text-sm">
+            <thead class="bg-slate-50 text-left text-slate-500">
+                <tr>
+                    <th class="px-6 py-4 font-medium">ID</th>
+                    <th class="px-6 py-4 font-medium">企业微信 ID</th>
+                    <th class="px-6 py-4 font-medium">昵称</th>
+                    <th class="px-6 py-4 font-medium">角色</th>
+                    <th class="px-6 py-4 font-medium">授权仓库</th>
+                    <th class="px-6 py-4 font-medium">创建时间</th>
+                    <th class="px-6 py-4 font-medium">操作</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+                {% for u in users %}
+                <tr class="align-top hover:bg-slate-50">
+                    <td class="px-6 py-4 text-slate-500">{{ u.id }}</td>
+                    <td class="px-6 py-4 font-mono text-xs">{{ u.wechat_user_id }}</td>
+                    <td class="px-6 py-4">{{ u.nickname or '—' }}</td>
+                    <td class="px-6 py-4">
+                        {% if u.role == 'admin' %}
+                        <span class="inline-flex items-center rounded-full bg-slate-900 px-2.5 py-1 text-xs font-medium text-white">admin</span>
+                        {% else %}
+                        <span class="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700 ring-1 ring-slate-200">user</span>
+                        {% endif %}
+                    </td>
+                    <td class="px-6 py-4">
+                        {% if u.role == 'admin' %}
+                        <span class="text-xs text-slate-400">全部（管理员）</span>
+                        {% else %}
+                        <span class="text-slate-700">{{ u.grant_count }}</span>
+                        {% endif %}
+                    </td>
+                    <td class="px-6 py-4 text-slate-500">{{ u.created_at.strftime('%Y-%m-%d %H:%M') if u.created_at else '—' }}</td>
+                    <td class="px-6 py-4">
+                        <a href="/admin/users/{{ u.id }}" class="inline-flex items-center rounded-2xl bg-slate-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-800">管理权限</a>
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="7" class="px-6 py-12 text-center text-slate-400">暂无用户。等用户在企业微信发条消息会自动创建账号。</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </section>
+</div>
+{% endblock %}

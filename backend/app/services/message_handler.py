@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import logging
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents import PMAgent
 from app.gateway.command_parser import Command
 from app.gateway.wechat_client import WeChatClient
-from app.models import Feedback, Project, Repo, Session as UserSession, User
+from app.models import Feedback, Project, Repo, Session as UserSession, User, UserRepo
 from app.services.project_service import ProjectService
 from app.services.session_manager import SessionManager
 from shared.constants import ProjectStatus, SessionState
@@ -44,6 +45,8 @@ class MessageHandler:
                     reply = await self._handle_status(user, session)
                 case "list":
                     reply = await self._handle_list(user, session)
+                case "my_repos":
+                    reply = await self._handle_my_repos(user)
                 case "help":
                     reply = self._handle_help()
                 case _:
@@ -79,6 +82,12 @@ class MessageHandler:
         repo = await self.project_service.get_repo_by_name(repo_name)
         if repo is None:
             return f"未找到仓库「{repo_name}」，请检查仓库别名后重试。"
+
+        if not await self._user_can_access_repo(user, repo.id):
+            return (
+                f"你还没有「{repo_name}」的提需求权限，请联系管理员开通后再试。\n"
+                "可发送 #我的仓库 查看你当前能提需求的仓库。"
+            )
 
         project = await self.project_service.create_project(
             repo_id=repo.id,
@@ -336,9 +345,50 @@ class MessageHandler:
             "#评分 <1-10> <反馈>\n"
             "#状态\n"
             "#列表\n"
+            "#我的仓库\n"
             "#帮助\n\n"
             "不带 # 的普通文本会继续发送给 PM AI。"
         )
+
+    async def _handle_my_repos(self, user: User) -> str:
+        if user.role == "admin":
+            repos = (
+                await self.db.execute(select(Repo).order_by(Repo.name))
+            ).scalars().all()
+            if not repos:
+                return "系统当前没有配置任何仓库。"
+            lines = [f"你是管理员，可以给所有仓库提需求（共 {len(repos)} 个）："]
+            for r in repos:
+                lines.append(f"• {r.name}（{r.github_owner}/{r.github_repo}）")
+            lines.append("")
+            lines.append("提需求格式：#新需求 <仓库别名> <需求描述>")
+            return "\n".join(lines)
+
+        stmt = (
+            select(Repo)
+            .join(UserRepo, UserRepo.repo_id == Repo.id)
+            .where(UserRepo.user_id == user.id)
+            .order_by(Repo.name)
+        )
+        repos = (await self.db.execute(stmt)).scalars().all()
+        if not repos:
+            return "你目前没有任何仓库的提需求权限，请联系管理员开通。"
+        lines = [f"你可以给以下 {len(repos)} 个仓库提需求："]
+        for r in repos:
+            lines.append(f"• {r.name}（{r.github_owner}/{r.github_repo}）")
+        lines.append("")
+        lines.append("提需求格式：#新需求 <仓库别名> <需求描述>")
+        return "\n".join(lines)
+
+    async def _user_can_access_repo(self, user: User, repo_id: int) -> bool:
+        if user.role == "admin":
+            return True
+        stmt = select(UserRepo).where(
+            UserRepo.user_id == user.id,
+            UserRepo.repo_id == repo_id,
+        )
+        result = await self.db.execute(stmt)
+        return result.scalar_one_or_none() is not None
 
     async def _get_active_project_context(
         self,

@@ -25,6 +25,8 @@ class Settings(BaseSettings):
     jwt_secret: str = "CHANGE_ME_USE_OPENSSL_RAND_HEX_32"
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 1440
+    claude_cli_executable: str = "claude"
+    claude_cli_timeout_seconds: int = 180
 
 
 @lru_cache

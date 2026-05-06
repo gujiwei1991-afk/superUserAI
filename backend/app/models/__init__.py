@@ -5,5 +5,9 @@ from app.models.repo import Repo
 from app.models.session import Session
 from app.models.system_config import SystemConfig
 from app.models.user import User
+from app.models.user_repo import UserRepo
 
-__all__ = ["User", "Repo", "Project", "Message", "Session", "Feedback", "SystemConfig"]
+__all__ = [
+    "User", "Repo", "Project", "Message", "Session", "Feedback",
+    "SystemConfig", "UserRepo",
+]

@@ -2,11 +2,10 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import APIRouter, BackgroundTasks
 
-from app.database import get_db
-from app.gateway.command_parser import parse_command
+from app.database import AsyncSessionLocal
+from app.gateway.command_parser import Command, parse_command
 from app.gateway.wechat_client import WeChatClient
 from app.services import MessageHandler
 from shared.constants import VWorkMsgType
@@ -18,10 +17,23 @@ router = APIRouter()
 wechat = WeChatClient()
 
 
+async def _process_message_async(user_id: str, command: Command) -> None:
+    async with AsyncSessionLocal() as db:
+        try:
+            handler = MessageHandler(db, wechat)
+            await handler.handle(user_id, command)
+        except Exception:
+            logger.exception(
+                "Background message processing failed for user_id=%s command=%s",
+                user_id,
+                command.type,
+            )
+
+
 @router.post("/msg")
 async def receive_message(
     message: VWorkMessage,
-    db: AsyncSession = Depends(get_db),
+    background_tasks: BackgroundTasks,
 ) -> dict[str, str]:
     if message.is_self_msg == 1:
         logger.debug("Ignoring self message: msg_id=%s", message.msg_id)
@@ -46,6 +58,5 @@ async def receive_message(
         message.user_id,
         command.type,
     )
-    handler = MessageHandler(db, wechat)
-    await handler.handle(message.user_id, command)
+    background_tasks.add_task(_process_message_async, message.user_id, command)
     return {"status": "ok"}

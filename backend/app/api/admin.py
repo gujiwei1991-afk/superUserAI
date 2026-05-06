@@ -4,7 +4,7 @@ import json
 import logging
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, quote_plus
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -23,7 +23,8 @@ from app.api.auth import (
 )
 from app.config import get_settings
 from app.database import get_db
-from app.models import Project, Repo, SystemConfig, User
+from app.gateway.wechat_client import WeChatClient
+from app.models import Project, Repo, SystemConfig, User, UserRepo
 from app.services.config_service import ConfigService
 from app.services.github_service import GitHubService
 from app.services.project_service import ProjectService
@@ -976,4 +977,236 @@ async def save_settings(
     return RedirectResponse(
         url=f"{request.url_for('admin_settings')}?saved=1",
         status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+def _redirect_to_user_detail(
+    user_id: int,
+    *,
+    message: str | None = None,
+    message_type: str = "success",
+) -> RedirectResponse:
+    url = f"/admin/users/{user_id}"
+    if message:
+        url = f"{url}?message={quote_plus(message)}&message_type={message_type}"
+    return RedirectResponse(url=url, status_code=status.HTTP_303_SEE_OTHER)
+
+
+@router.get("/users", name="admin_users")
+async def users_page(
+    request: Request,
+    current_admin: dict[str, Any] = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    grant_count_subq = (
+        select(UserRepo.user_id, func.count().label("grant_count"))
+        .group_by(UserRepo.user_id)
+        .subquery()
+    )
+    stmt = (
+        select(User, func.coalesce(grant_count_subq.c.grant_count, 0).label("grant_count"))
+        .outerjoin(grant_count_subq, grant_count_subq.c.user_id == User.id)
+        .order_by(User.id.asc())
+    )
+    rows = (await db.execute(stmt)).all()
+    users = []
+    for u, grant_count in rows:
+        users.append({
+            "id": u.id,
+            "wechat_user_id": u.wechat_user_id,
+            "nickname": u.nickname,
+            "role": u.role,
+            "created_at": u.created_at,
+            "grant_count": int(grant_count or 0),
+        })
+
+    return _render(
+        request,
+        "users.html",
+        active_page="users",
+        context={
+            "current_admin": current_admin,
+            "users": users,
+            "message": request.query_params.get("message") or None,
+            "message_type": request.query_params.get("message_type", "success"),
+        },
+    )
+
+
+@router.get("/users/{user_id}", name="admin_user_detail")
+async def user_detail_page(
+    user_id: int,
+    request: Request,
+    current_admin: dict[str, Any] = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    user = await db.get(User, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="用户不存在")
+
+    granted_stmt = (
+        select(Repo)
+        .join(UserRepo, UserRepo.repo_id == Repo.id)
+        .where(UserRepo.user_id == user_id)
+        .order_by(Repo.name)
+    )
+    granted_repos = (await db.execute(granted_stmt)).scalars().all()
+    granted_ids = {r.id for r in granted_repos}
+
+    all_repos = (await db.execute(select(Repo).order_by(Repo.name))).scalars().all()
+    available_repos = [r for r in all_repos if r.id not in granted_ids]
+
+    return _render(
+        request,
+        "user_detail.html",
+        active_page="users",
+        context={
+            "current_admin": current_admin,
+            "user": user,
+            "granted_repos": granted_repos,
+            "available_repos": available_repos,
+            "message": request.query_params.get("message") or None,
+            "message_type": request.query_params.get("message_type", "success"),
+        },
+    )
+
+
+@router.post("/users/{user_id}/grants", name="admin_grant_repo")
+async def grant_repo(
+    user_id: int,
+    request: Request,
+    current_admin: dict[str, Any] = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    user = await db.get(User, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    if user.role == "admin":
+        return _redirect_to_user_detail(
+            user_id,
+            message="管理员默认拥有所有仓库权限，无需单独授权。",
+            message_type="warning",
+        )
+
+    form = await _read_form_data(request)
+    repo_id_raw = form.get("repo_id", "").strip()
+    if not repo_id_raw:
+        return _redirect_to_user_detail(
+            user_id, message="请选择要授权的仓库。", message_type="error"
+        )
+    try:
+        repo_id = int(repo_id_raw)
+    except ValueError:
+        return _redirect_to_user_detail(
+            user_id, message="无效的仓库 ID。", message_type="error"
+        )
+
+    repo = await db.get(Repo, repo_id)
+    if repo is None:
+        return _redirect_to_user_detail(
+            user_id, message="仓库不存在。", message_type="error"
+        )
+
+    existing = await db.execute(
+        select(UserRepo).where(
+            UserRepo.user_id == user_id, UserRepo.repo_id == repo_id
+        )
+    )
+    if existing.scalar_one_or_none() is not None:
+        return _redirect_to_user_detail(
+            user_id,
+            message=f"用户已拥有仓库「{repo.name}」的权限。",
+            message_type="warning",
+        )
+
+    granter_id_raw = current_admin.get("sub")
+    granter_id: int | None
+    try:
+        granter_id = int(granter_id_raw) if granter_id_raw is not None else None
+    except (TypeError, ValueError):
+        granter_id = None
+
+    db.add(UserRepo(user_id=user_id, repo_id=repo_id, granted_by=granter_id))
+    await db.commit()
+
+    return _redirect_to_user_detail(
+        user_id, message=f"已授权用户访问仓库「{repo.name}」。"
+    )
+
+
+@router.post("/users/sync", name="admin_sync_users")
+async def sync_users(
+    request: Request,
+    current_admin: dict[str, Any] = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    del request, current_admin
+    client = WeChatClient()
+    try:
+        items = await client.list_internal_friends()
+    except Exception as exc:
+        logger.exception("Failed to fetch internal friends from vworkApi")
+        return RedirectResponse(
+            url=f"/admin/users?message={quote_plus(f'同步失败：{exc}')}&message_type=error",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+
+    created = 0
+    nickname_updated = 0
+    for item in items:
+        wechat_id = str(item.get("user_id") or "").strip()
+        if not wechat_id:
+            continue
+        nickname = (str(item.get("nick_name") or "")).strip() or None
+
+        existing = (
+            await db.execute(select(User).where(User.wechat_user_id == wechat_id))
+        ).scalar_one_or_none()
+        if existing is None:
+            db.add(User(wechat_user_id=wechat_id, nickname=nickname, role="user"))
+            created += 1
+        elif nickname and existing.nickname != nickname:
+            existing.nickname = nickname
+            nickname_updated += 1
+
+    await db.commit()
+    msg = (
+        f"同步完成：新增 {created} 个用户，更新昵称 {nickname_updated} 个，"
+        f"共拉取 {len(items)} 条记录。"
+    )
+    return RedirectResponse(
+        url=f"/admin/users?message={quote_plus(msg)}&message_type=success",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@router.post("/users/{user_id}/grants/{repo_id}/revoke", name="admin_revoke_repo")
+async def revoke_repo(
+    user_id: int,
+    repo_id: int,
+    request: Request,
+    current_admin: dict[str, Any] = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    del request, current_admin
+
+    grant = await db.execute(
+        select(UserRepo).where(
+            UserRepo.user_id == user_id, UserRepo.repo_id == repo_id
+        )
+    )
+    grant_obj = grant.scalar_one_or_none()
+    if grant_obj is None:
+        return _redirect_to_user_detail(
+            user_id, message="该用户并未拥有此仓库的权限。", message_type="warning"
+        )
+
+    repo = await db.get(Repo, repo_id)
+    repo_name = repo.name if repo is not None else f"#{repo_id}"
+
+    await db.delete(grant_obj)
+    await db.commit()
+
+    return _redirect_to_user_detail(
+        user_id, message=f"已撤销对仓库「{repo_name}」的授权。"
     )
