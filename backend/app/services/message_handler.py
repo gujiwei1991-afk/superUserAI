@@ -62,11 +62,11 @@ class MessageHandler:
                 case "my_repos":
                     reply = await self._handle_my_repos(user)
                 case "help":
-                    reply = self._handle_help()
+                    reply = self._handle_help(user)
                 case "review":
                     reply = await self._handle_review_command(user, command)
                 case _:
-                    reply = self._handle_help()
+                    reply = self._handle_help(user)
 
             await self.db.commit()
         except Exception:
@@ -353,7 +353,11 @@ class MessageHandler:
 
         return "\n".join(lines)
 
-    def _handle_help(self) -> str:
+    def _handle_help(self, user: User | None = None) -> str:
+        admin_lines = (
+            "\n#审核 <项目id> 通过\n"
+            "#审核 <项目id> 拒绝 <理由>\n"
+        ) if user is not None and user.role == "admin" else ""
         return (
             "可用指令：\n"
             "#新需求 <仓库> <需求描述>\n"
@@ -363,7 +367,8 @@ class MessageHandler:
             "#状态\n"
             "#列表\n"
             "#我的仓库\n"
-            "#帮助\n\n"
+            "#帮助"
+            f"{admin_lines}\n\n"
             "不带 # 的普通文本会继续发送给 PM AI。"
         )
 
@@ -406,6 +411,8 @@ class MessageHandler:
             decision = str(command.args.get("decision", ""))
         except (TypeError, ValueError):
             return "审核命令参数解析失败，请使用:#审核 <项目id> 通过/拒绝 [理由]"
+        if decision not in {"通过", "拒绝"}:
+            return "无效的审核决定，请使用「通过」或「拒绝」。"
         reason = str(command.args.get("reason", ""))
 
         project = await self.db.get(Project, project_id)
@@ -431,10 +438,10 @@ class MessageHandler:
                     approver_id=user.id,
                 )
             except Exception as exc:
+                # GitHub 调用失败时,create_issue_for_project 在写入 project 字段前就抛了,
+                # 没有需要回滚的脏状态;让外层 handle() 的 commit 自然走空 transaction。
                 logger.exception("create_issue_for_project failed for project=%s", project.id)
-                await self.db.rollback()
                 return f"创建 GitHub Issue 失败:{exc}"
-            await self.db.flush()
             await self.db.refresh(project)
             await notify_creator_approved(self.db, self.wechat, project)
             return (

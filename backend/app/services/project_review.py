@@ -97,7 +97,7 @@ async def notify_creator_dev_failed(
     body = f"⚠️ 需求《{project.title}》自动开发失败。"
     if reason and reason.strip():
         body += f"\n\n失败原因:\n{reason.strip()[:600]}"
-    body += "\n\n已暂时挂起,请联系管理员排查后再决定是否重试。"
+    body += "\n\n已暂时挂起，请联系管理员排查后再决定是否重试。"
     try:
         await wechat.send_text(creator.wechat_user_id, body)
     except Exception:
