@@ -83,3 +83,22 @@ async def notify_creator_rejected(
         await wechat.send_text(creator.wechat_user_id, body)
     except Exception:
         logger.exception("notify creator rejected failed project=%s", project.id)
+
+
+async def notify_creator_dev_failed(
+    db: AsyncSession,
+    wechat: WeChatClient,
+    project: Project,
+    reason: str,
+) -> None:
+    creator = await db.get(User, project.creator_id)
+    if creator is None or not creator.wechat_user_id:
+        return
+    body = f"⚠️ 需求《{project.title}》自动开发失败。"
+    if reason and reason.strip():
+        body += f"\n\n失败原因:\n{reason.strip()[:600]}"
+    body += "\n\n已暂时挂起,请联系管理员排查后再决定是否重试。"
+    try:
+        await wechat.send_text(creator.wechat_user_id, body)
+    except Exception:
+        logger.exception("notify creator dev_failed project=%s", project.id)

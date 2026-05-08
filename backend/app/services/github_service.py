@@ -28,7 +28,11 @@ class GitHubService:
 
     @classmethod
     def for_repo(cls, repo: "Repo") -> "GitHubService":
-        token = repo.github_token_encrypted if repo.has_custom_github_token else get_settings().github_token
+        token = (
+            repo.github_token_encrypted
+            if repo.has_custom_github_token
+            else get_settings().github_token
+        )
         return cls(token=token)
 
     async def create_issue(

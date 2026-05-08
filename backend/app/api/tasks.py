@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.gateway.wechat_client import WeChatClient
 from app.models import DevTask, Project, ProjectDevLog, Repo
-from app.services.project_review import notify_creator_rejected
+from app.services.project_review import notify_creator_dev_failed
 from shared.constants import ProjectStatus
 
 logger = logging.getLogger(__name__)
@@ -120,7 +120,7 @@ async def fail_task(
     await db.commit()
     await db.refresh(project)
 
-    await notify_creator_rejected(db, wechat, project, payload.reason)
+    await notify_creator_dev_failed(db, wechat, project, payload.reason)
 
     return {"status": "ok", "project_id": project.id}
 
