@@ -405,7 +405,7 @@ class MessageHandler:
             project_id = int(command.args.get("project_id"))
             decision = str(command.args.get("decision", ""))
         except (TypeError, ValueError):
-            return "审核命令参数解析失败,请使用:#审核 <项目id> 通过/拒绝 [理由]"
+            return "审核命令参数解析失败，请使用:#审核 <项目id> 通过/拒绝 [理由]"
         reason = str(command.args.get("reason", ""))
 
         project = await self.db.get(Project, project_id)
@@ -414,15 +414,15 @@ class MessageHandler:
 
         if project.status != ProjectStatus.REVIEWING.value:
             return (
-                f"项目 #{project.id} 当前状态是「{self._status_label(project.status)}」,"
-                "不是待审核,无法审批。"
+                f"项目 #{project.id} 当前状态是「{self._status_label(project.status)}」，"
+                "不是待审核，无法审批。"
             )
 
         repo = await self.db.get(Repo, project.repo_id) if project.repo_id else None
 
         if decision == "通过":
             if repo is None:
-                return "项目没有关联仓库,无法创建 GitHub Issue。"
+                return "项目没有关联仓库，无法创建 GitHub Issue。"
             try:
                 issue_number = await create_issue_for_project(
                     self.db,
@@ -438,8 +438,8 @@ class MessageHandler:
             await self.db.refresh(project)
             await notify_creator_approved(self.db, self.wechat, project)
             return (
-                f"✅ 已审核通过项目 #{project.id},"
-                f"GitHub Issue #{issue_number} 已创建,dev-agent 30 秒内会拾取。"
+                f"✅ 已审核通过项目 #{project.id}，"
+                f"GitHub Issue #{issue_number} 已创建，dev-agent 30 秒内会拾取。"
             )
 
         # 拒绝路径
