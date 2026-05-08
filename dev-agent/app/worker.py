@@ -105,7 +105,12 @@ class Worker:
             await push_milestone(
                 f"✅ 已提交 PR #{pull_request['number']}：{pull_request['html_url']}"
             )
-            await self._notify_backend_completed(project_id, int(pull_request["number"]))
+            await self._notify_backend_completed(
+                project_id,
+                int(pull_request["number"]),
+                branch=branch_name,
+                summary=run_result.summary,
+            )
         finally:
             try:
                 await asyncio.to_thread(self.git_ops.checkout_main, repo_path)
@@ -122,8 +127,11 @@ class Worker:
                     for task in tasks:
                         try:
                             await self.process_task(task)
-                        except Exception:
+                        except Exception as exc:
                             logger.exception("Failed to process task: %s", task)
+                            project_id = task.get("project_id")
+                            if isinstance(project_id, int):
+                                await self._notify_backend_failed(project_id, str(exc))
                 except Exception:
                     logger.exception("Failed to poll pending tasks")
 
@@ -169,12 +177,38 @@ class Worker:
             raise ValueError("GitHub create PR response is not a JSON object")
         return data
 
-    async def _notify_backend_completed(self, project_id: int, pr_number: int) -> None:
+    async def _notify_backend_completed(
+        self,
+        project_id: int,
+        pr_number: int,
+        *,
+        branch: str | None = None,
+        summary: str | None = None,
+    ) -> None:
+        payload: dict[str, Any] = {"pr_number": pr_number}
+        if branch:
+            payload["branch"] = branch
+        if summary:
+            payload["summary"] = summary
         response = await self.backend_client.post(
             f"/api/tasks/{project_id}/completed",
-            json={"pr_number": pr_number},
+            json=payload,
         )
         response.raise_for_status()
+
+    async def _notify_backend_failed(self, project_id: int, reason: str) -> None:
+        try:
+            response = await self.backend_client.post(
+                f"/api/tasks/{project_id}/failed",
+                json={"reason": reason[:4000]},
+            )
+            response.raise_for_status()
+        except Exception:
+            logger.warning(
+                "Failed to notify backend about task failure project_id=%s",
+                project_id,
+                exc_info=True,
+            )
 
     async def _post_progress(self, project_id: int, message: str) -> None:
         try:

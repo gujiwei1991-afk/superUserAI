@@ -1,94 +1,190 @@
 {% extends "base.html" %}
 
-{% block title %}项目详情{% endblock %}
+{% block title %}项目 {{ repo.name }}{% endblock %}
 
 {% block content %}
 <div class="space-y-8">
     <div>
-        <div class="flex flex-wrap items-center gap-3">
-            <h1 class="text-3xl font-semibold text-slate-900">{{ project.title }}</h1>
-            <span class="inline-flex items-center rounded-full px-3 py-1 text-xs font-medium ring-1 {{ status_badge_classes.get(project.status, 'bg-slate-100 text-slate-700 ring-slate-200') }}">
-                {{ status_labels.get(project.status, project.status) }}
-            </span>
+        <a href="/admin/projects" class="text-sm text-slate-500 hover:text-slate-700">← 返回项目列表</a>
+        <div class="mt-2 flex flex-wrap items-center gap-3">
+            <h1 class="text-3xl font-semibold text-slate-900">{{ repo.name }}</h1>
+            {% if webhook_status %}
+            <span class="inline-flex rounded-full bg-emerald-100 px-3 py-1 text-xs font-medium text-emerald-700 ring-1 ring-emerald-200">Webhook ✓</span>
+            {% else %}
+            <span class="inline-flex rounded-full bg-rose-100 px-3 py-1 text-xs font-medium text-rose-700 ring-1 ring-rose-200">Webhook 缺失</span>
+            {% endif %}
         </div>
-        <p class="mt-3 text-sm text-slate-500">项目 ID #{{ project.id }}</p>
+        <p class="mt-1 font-mono text-xs text-slate-500">{{ repo.github_owner }}/{{ repo.github_repo }}</p>
     </div>
 
-    <div class="grid gap-6 lg:grid-cols-2">
-        <section class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+    {% if message %}
+    <div class="rounded-2xl border px-4 py-3 text-sm {% if message_type == 'warning' %}border-amber-200 bg-amber-50 text-amber-700{% elif message_type == 'error' %}border-rose-200 bg-rose-50 text-rose-700{% else %}border-emerald-200 bg-emerald-50 text-emerald-700{% endif %}">
+        {{ message }}
+    </div>
+    {% endif %}
+
+    <section class="grid gap-6 lg:grid-cols-2">
+        <div class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
             <h2 class="text-lg font-semibold text-slate-900">基本信息</h2>
             <dl class="mt-4 space-y-3 text-sm">
                 <div class="flex justify-between gap-4">
-                    <dt class="text-slate-500">仓库</dt>
-                    <dd class="font-medium text-slate-900">{{ project.repo.name if project.repo else '-' }}</dd>
+                    <dt class="text-slate-500">GitHub 仓库</dt>
+                    <dd>
+                        <a href="https://github.com/{{ repo.github_owner }}/{{ repo.github_repo }}" target="_blank" rel="noreferrer" class="font-medium text-blue-600 hover:text-blue-500">{{ repo.github_owner }}/{{ repo.github_repo }}</a>
+                    </dd>
                 </div>
                 <div class="flex justify-between gap-4">
-                    <dt class="text-slate-500">创建人</dt>
-                    <dd class="font-medium text-slate-900">{{ project.creator.wechat_user_id if project.creator else '-' }}</dd>
+                    <dt class="text-slate-500">本地代码目录</dt>
+                    <dd class="text-right">
+                        {% if local_path %}
+                        <span class="font-mono text-xs text-slate-700">{{ local_path }}</span>
+                        {% else %}
+                        <span class="text-xs text-slate-400">未配置</span>
+                        {% endif %}
+                    </dd>
                 </div>
                 <div class="flex justify-between gap-4">
-                    <dt class="text-slate-500">审核人</dt>
-                    <dd class="font-medium text-slate-900">{{ project.approver.wechat_user_id if project.approver else '-' }}</dd>
+                    <dt class="text-slate-500">dev-agent 沙箱目录</dt>
+                    <dd class="font-mono text-xs text-slate-500" title="dev-agent 自动 clone 的工作目录，跑完 PR 会保留">{{ sandbox_path }}</dd>
+                </div>
+                <div class="flex justify-between gap-4">
+                    <dt class="text-slate-500">部署服务器</dt>
+                    <dd class="font-medium text-slate-900">{{ repo.deploy_server or '—' }}</dd>
+                </div>
+                <div class="flex justify-between gap-4">
+                    <dt class="text-slate-500">部署配置</dt>
+                    <dd class="max-w-sm">
+                        {% if repo.deploy_config %}
+                        <pre class="rounded-2xl bg-slate-100 p-3 text-xs text-slate-700">{{ repo.deploy_config | tojson(indent=2) }}</pre>
+                        {% else %}
+                        <span class="text-slate-400">—</span>
+                        {% endif %}
+                    </dd>
                 </div>
                 <div class="flex justify-between gap-4">
                     <dt class="text-slate-500">创建时间</dt>
-                    <dd class="font-medium text-slate-900">{{ project.created_at.strftime("%Y-%m-%d %H:%M:%S") }}</dd>
-                </div>
-                <div class="flex justify-between gap-4">
-                    <dt class="text-slate-500">更新时间</dt>
-                    <dd class="font-medium text-slate-900">{{ project.updated_at.strftime("%Y-%m-%d %H:%M:%S") }}</dd>
+                    <dd class="font-medium text-slate-900">{{ repo.created_at.strftime('%Y-%m-%d %H:%M') if repo.created_at else '—' }}</dd>
                 </div>
             </dl>
-        </section>
+            <div class="mt-5 flex flex-wrap gap-3">
+                <form method="post" action="/admin/projects/{{ repo.id }}/webhook">
+                    <button type="submit" class="rounded-2xl border border-slate-300 px-4 py-2 text-xs font-medium text-slate-700 hover:border-slate-400 hover:bg-slate-100">重新配置 Webhook</button>
+                </form>
+            </div>
+        </div>
 
-        <section class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
-            <h2 class="text-lg font-semibold text-slate-900">GitHub 关联</h2>
-            <dl class="mt-4 space-y-3 text-sm">
-                <div class="flex justify-between gap-4">
-                    <dt class="text-slate-500">Issue</dt>
-                    <dd class="font-medium text-slate-900">
-                        {% if issue_url %}
-                        <a href="{{ issue_url }}" target="_blank" rel="noreferrer" class="text-blue-600 hover:text-blue-500">
-                            #{{ project.github_issue_number }}
-                        </a>
-                        {% else %}
-                        -
-                        {% endif %}
-                    </dd>
-                </div>
-                <div class="flex justify-between gap-4">
-                    <dt class="text-slate-500">PR</dt>
-                    <dd class="font-medium text-slate-900">
-                        {% if pr_url %}
-                        <a href="{{ pr_url }}" target="_blank" rel="noreferrer" class="text-blue-600 hover:text-blue-500">
-                            #{{ project.github_pr_number }}
-                        </a>
-                        {% else %}
-                        -
-                        {% endif %}
-                    </dd>
-                </div>
-                <div class="flex justify-between gap-4">
-                    <dt class="text-slate-500">评分</dt>
-                    <dd class="font-medium text-slate-900">
-                        {% if project.score is not none %}
-                        {{ project.score }}
-                        {% else %}
-                        -
-                        {% endif %}
-                    </dd>
-                </div>
-                <div class="flex justify-between gap-4">
-                    <dt class="text-slate-500">反馈</dt>
-                    <dd class="max-w-sm text-right font-medium text-slate-900">{{ project.feedback or '-' }}</dd>
-                </div>
-            </dl>
-        </section>
-    </div>
+        <div class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+            <h2 class="text-lg font-semibold text-slate-900">项目信息</h2>
+            <form method="post" action="/admin/projects/{{ repo.id }}/description" class="mt-4 space-y-4">
+                <label class="block">
+                    <span class="mb-2 block text-sm font-medium text-slate-700">本地代码目录</span>
+                    <input type="text" name="local_path" value="{{ repo.local_path or '' }}" class="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 font-mono text-sm outline-none focus:border-slate-400 focus:bg-white" placeholder="/Users/gujiwei/python/oaSys">
+                    <span class="mt-2 block text-xs text-slate-500">你本机维护这个项目源码的路径，仅作记录，dev-agent 不会改动它。</span>
+                </label>
+                <label class="block">
+                    <span class="mb-2 block text-sm font-medium text-slate-700">项目描述</span>
+                    <textarea name="description" rows="5" class="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-slate-400 focus:bg-white" placeholder="描述这个项目是干什么的、用什么技术栈、归属哪个团队等。">{{ repo.description or '' }}</textarea>
+                </label>
+                <button type="submit" class="rounded-2xl bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800">保存</button>
+            </form>
+        </div>
+    </section>
 
-    <section class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
-        <h2 class="text-lg font-semibold text-slate-900">PRD 内容</h2>
-        <pre class="mt-4 overflow-x-auto rounded-2xl bg-slate-950 p-5 text-sm leading-6 text-slate-100">{{ project.prd_content or '暂无 PRD 内容。' }}</pre>
+    <section class="rounded-3xl bg-white shadow-sm ring-1 ring-slate-200">
+        <div class="flex items-center justify-between gap-4 border-b border-slate-100 px-6 py-4">
+            <div>
+                <h2 class="text-lg font-semibold text-slate-900">需求清单</h2>
+                <p class="mt-1 text-xs text-slate-500">用户在企微提的需求都会出现在这里。</p>
+            </div>
+            <span class="text-sm text-slate-500">共 {{ requirements|length }} 条</span>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-slate-100 text-sm">
+                <thead class="bg-slate-50 text-left text-slate-500">
+                    <tr>
+                        <th class="px-6 py-3 font-medium">ID</th>
+                        <th class="px-6 py-3 font-medium">标题</th>
+                        <th class="px-6 py-3 font-medium">状态</th>
+                        <th class="px-6 py-3 font-medium">提出人</th>
+                        <th class="px-6 py-3 font-medium">创建时间</th>
+                        <th class="px-6 py-3 font-medium">操作</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                    {% for p in requirements %}
+                    <tr class="hover:bg-slate-50">
+                        <td class="px-6 py-4 text-slate-500">#{{ p.id }}</td>
+                        <td class="px-6 py-4 font-medium text-slate-900">{{ p.title }}</td>
+                        <td class="px-6 py-4">
+                            <span class="inline-flex items-center rounded-full px-3 py-1 text-xs font-medium ring-1 {{ status_badge_classes.get(p.status, 'bg-slate-100 text-slate-700 ring-slate-200') }}">
+                                {{ status_labels.get(p.status, p.status) }}
+                            </span>
+                        </td>
+                        <td class="px-6 py-4 text-slate-500">{{ p.creator.nickname or p.creator.wechat_user_id if p.creator else '—' }}</td>
+                        <td class="px-6 py-4 text-slate-500">{{ p.created_at.strftime('%Y-%m-%d %H:%M') if p.created_at else '—' }}</td>
+                        <td class="px-6 py-4">
+                            <a href="/admin/requirements/{{ p.id }}" class="rounded-full bg-slate-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-800">查看</a>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="6" class="px-6 py-12 text-center text-slate-400">暂无需求。</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <section class="rounded-3xl bg-white shadow-sm ring-1 ring-slate-200">
+        <div class="flex items-center justify-between gap-4 border-b border-slate-100 px-6 py-4">
+            <div>
+                <h2 class="text-lg font-semibold text-slate-900">开发清单</h2>
+                <p class="mt-1 text-xs text-slate-500">每条需求批准后会触发一个开发任务，由 dev-agent 自动执行。</p>
+            </div>
+            <span class="text-sm text-slate-500">共 {{ dev_tasks|length }} 条</span>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-slate-100 text-sm">
+                <thead class="bg-slate-50 text-left text-slate-500">
+                    <tr>
+                        <th class="px-6 py-3 font-medium">任务 ID</th>
+                        <th class="px-6 py-3 font-medium">关联需求</th>
+                        <th class="px-6 py-3 font-medium">分支</th>
+                        <th class="px-6 py-3 font-medium">PR</th>
+                        <th class="px-6 py-3 font-medium">状态</th>
+                        <th class="px-6 py-3 font-medium">开始时间</th>
+                        <th class="px-6 py-3 font-medium">完成时间</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                    {% for v in dev_tasks %}
+                    {% set t = v.task %}
+                    <tr class="hover:bg-slate-50">
+                        <td class="px-6 py-4 text-slate-500">#{{ t.id }}</td>
+                        <td class="px-6 py-4">
+                            <a href="/admin/requirements/{{ t.project_id }}" class="font-medium text-slate-900 hover:text-slate-700">{{ v.project_title }}</a>
+                        </td>
+                        <td class="px-6 py-4 font-mono text-xs text-slate-700">{{ t.branch or '—' }}</td>
+                        <td class="px-6 py-4">
+                            {% if v.pr_url %}
+                            <a href="{{ v.pr_url }}" target="_blank" rel="noreferrer" class="text-blue-600 hover:text-blue-500">#{{ t.pr_number }}</a>
+                            {% else %}
+                            <span class="text-slate-400">—</span>
+                            {% endif %}
+                        </td>
+                        <td class="px-6 py-4">
+                            <span class="inline-flex items-center rounded-full px-3 py-1 text-xs font-medium ring-1 {{ dev_task_badge_classes.get(t.status, 'bg-slate-100 text-slate-700 ring-slate-200') }}">
+                                {{ dev_task_status_labels.get(t.status, t.status) }}
+                            </span>
+                        </td>
+                        <td class="px-6 py-4 text-slate-500">{{ t.started_at.strftime('%Y-%m-%d %H:%M') if t.started_at else '—' }}</td>
+                        <td class="px-6 py-4 text-slate-500">{{ t.finished_at.strftime('%Y-%m-%d %H:%M') if t.finished_at else '—' }}</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="7" class="px-6 py-12 text-center text-slate-400">暂无开发任务。</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
     </section>
 </div>
 {% endblock %}

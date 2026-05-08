@@ -28,6 +28,15 @@ class MessageHandler:
         reply = "抱歉，当前处理消息时出现异常，请稍后再试。"
         try:
             user = await self.session_manager.get_or_create_user(wechat_user_id)
+
+            if user.role != "admin" and not user.is_active:
+                logger.info(
+                    "Whitelist gate: dropping message from inactive user wechat_user_id=%s",
+                    wechat_user_id,
+                )
+                await self.db.commit()
+                return ""
+
             session = await self.session_manager.get_session(user)
 
             match command.type:

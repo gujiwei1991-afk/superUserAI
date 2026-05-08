@@ -5,27 +5,62 @@
 {% block content %}
 <div class="space-y-8">
     <div>
-        <h1 class="text-3xl font-semibold text-slate-900">项目仪表盘</h1>
-        <p class="mt-2 text-sm text-slate-500">快速查看当前项目总体状态。</p>
+        <h1 class="text-3xl font-semibold text-slate-900">仪表盘</h1>
+        <p class="mt-2 text-sm text-slate-500">项目（顶层）= 一个 GitHub 仓库；需求 = 用户在企微提的一条诉求。</p>
     </div>
 
-    <div class="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
-        <div class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
-            <p class="text-sm text-slate-500">项目总数</p>
-            <p class="mt-4 text-4xl font-semibold text-slate-900">{{ stats.total }}</p>
+    <section class="space-y-3">
+        <h2 class="text-sm font-medium text-slate-500">项目</h2>
+        <div class="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
+            <a href="/admin/projects" class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200 transition hover:ring-slate-400">
+                <p class="text-sm text-slate-500">项目总数</p>
+                <p class="mt-4 text-4xl font-semibold text-slate-900">{{ stats.projects_total }}</p>
+                <p class="mt-2 text-xs text-slate-400">已配置的 GitHub 仓库数量</p>
+            </a>
         </div>
-        <div class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-amber-200">
-            <p class="text-sm text-amber-700">待审核</p>
-            <p class="mt-4 text-4xl font-semibold text-amber-900">{{ stats.reviewing }}</p>
+    </section>
+
+    <section class="space-y-3">
+        <h2 class="text-sm font-medium text-slate-500">需求（按生命周期阶段）</h2>
+        <div class="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
+            <a href="/admin/requirements" class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200 transition hover:ring-slate-400">
+                <p class="text-sm text-slate-500">需求总数</p>
+                <p class="mt-4 text-4xl font-semibold text-slate-900">{{ stats.requirements_total }}</p>
+                <p class="mt-2 text-xs text-slate-400">drafting + reviewing + approved + developing + deployed + acceptance + completed + rejected</p>
+            </a>
+            <a href="/admin/reviews" class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-amber-200 transition hover:ring-amber-400">
+                <p class="text-sm text-amber-700">待你审核</p>
+                <p class="mt-4 text-4xl font-semibold text-amber-900">{{ stats.reviewing }}</p>
+                <p class="mt-2 text-xs text-amber-600">PRD 已生成，等管理员批准（reviewing）</p>
+            </a>
+            <div class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-violet-200">
+                <p class="text-sm text-violet-700">进行中</p>
+                <p class="mt-4 text-4xl font-semibold text-violet-900">{{ stats.in_progress }}</p>
+                <p class="mt-2 text-xs text-violet-600">approved（等 dev-agent）+ developing（PR 已开 待合并）</p>
+            </div>
+            <div class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-cyan-200">
+                <p class="text-sm text-cyan-700">待用户验收</p>
+                <p class="mt-4 text-4xl font-semibold text-cyan-900">{{ stats.deployed_pending_review }}</p>
+                <p class="mt-2 text-xs text-cyan-600">PR 已合并、已部署，等用户企微回 #评分（deployed/acceptance）</p>
+            </div>
         </div>
-        <div class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-violet-200">
-            <p class="text-sm text-violet-700">开发中</p>
-            <p class="mt-4 text-4xl font-semibold text-violet-900">{{ stats.developing }}</p>
+        <div class="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
+            <div class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-emerald-200">
+                <p class="text-sm text-emerald-700">已完成</p>
+                <p class="mt-4 text-4xl font-semibold text-emerald-900">{{ stats.completed }}</p>
+                <p class="mt-2 text-xs text-emerald-600">用户已 #评分 闭环（completed）</p>
+            </div>
+            <div class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+                <p class="text-sm text-slate-500">沟通中</p>
+                <p class="mt-4 text-4xl font-semibold text-slate-700">{{ stats.drafting }}</p>
+                <p class="mt-2 text-xs text-slate-400">用户和 PM AI 还在沟通需求（drafting）</p>
+            </div>
+            <div class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-rose-200">
+                <p class="text-sm text-rose-700">已驳回</p>
+                <p class="mt-4 text-4xl font-semibold text-rose-900">{{ stats.rejected }}</p>
+                <p class="mt-2 text-xs text-rose-600">管理员驳回的需求（rejected）</p>
+            </div>
         </div>
-        <div class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-emerald-200">
-            <p class="text-sm text-emerald-700">已完成</p>
-            <p class="mt-4 text-4xl font-semibold text-emerald-900">{{ stats.completed }}</p>
-        </div>
-    </div>
+    </section>
 </div>
 {% endblock %}

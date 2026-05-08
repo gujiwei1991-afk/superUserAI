@@ -79,7 +79,12 @@ async def _handle_pull_request_event(payload: dict[str, Any], db: AsyncSession) 
     await _notify_project_creator(
         db,
         project,
-        f"项目《{project.title}》关联的 GitHub PR #{pr_number} 已合并，状态已更新为 deployed。",
+        (
+            f"✅ 需求《{project.title}》对应的 GitHub PR #{pr_number} 已合并，代码已部署。\n\n"
+            "请去验证一下功能是否符合预期：\n"
+            "• 验收通过：发送  #评分 <1-10> <反馈内容>  完成闭环\n"
+            "• 还有问题：发送  #修改 <修改建议>  让 AI 继续调整\n"
+        ),
     )
 
 
@@ -113,7 +118,12 @@ async def _handle_workflow_run_event(payload: dict[str, Any], db: AsyncSession) 
     await _notify_project_creator(
         db,
         project,
-        f"项目《{project.title}》已部署成功，状态已更新为 deployed。",
+        (
+            f"🚀 需求《{project.title}》已部署成功。\n\n"
+            "请验证一下功能：\n"
+            "• 验收通过：发送  #评分 <1-10> <反馈内容>  完成闭环\n"
+            "• 还有问题：发送  #修改 <修改建议>  让 AI 继续调整\n"
+        ),
     )
 
 

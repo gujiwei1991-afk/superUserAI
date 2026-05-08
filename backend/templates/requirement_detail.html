@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+
+{% block title %}需求 #{{ project.id }}{% endblock %}
+
+{% block content %}
+<div class="space-y-8">
+    <div>
+        {% if project.repo %}
+        <a href="/admin/projects/{{ project.repo.id }}" class="text-sm text-slate-500 hover:text-slate-700">← 返回项目「{{ project.repo.name }}」</a>
+        {% else %}
+        <a href="/admin/requirements" class="text-sm text-slate-500 hover:text-slate-700">← 返回需求列表</a>
+        {% endif %}
+        <div class="mt-2 flex flex-wrap items-center gap-3">
+            <h1 class="text-3xl font-semibold text-slate-900">{{ project.title }}</h1>
+            <span class="inline-flex items-center rounded-full px-3 py-1 text-xs font-medium ring-1 {{ status_badge_classes.get(project.status, 'bg-slate-100 text-slate-700 ring-slate-200') }}">
+                {{ status_labels.get(project.status, project.status) }}
+            </span>
+        </div>
+        <p class="mt-3 text-sm text-slate-500">需求 ID #{{ project.id }}</p>
+    </div>
+
+    {% if message %}
+    <div class="rounded-2xl border px-4 py-3 text-sm {% if message_type == 'warning' %}border-amber-200 bg-amber-50 text-amber-700{% elif message_type == 'error' %}border-rose-200 bg-rose-50 text-rose-700{% else %}border-emerald-200 bg-emerald-50 text-emerald-700{% endif %}">
+        {{ message }}
+    </div>
+    {% endif %}
+
+    {% if project.status in ['rejected', 'developing'] and project.github_issue_number %}
+    <section class="rounded-3xl border border-amber-200 bg-amber-50 p-6">
+        <div class="flex flex-wrap items-start justify-between gap-4">
+            <div>
+                <h3 class="text-base font-semibold text-amber-900">
+                    {% if project.status == 'rejected' %}
+                    自动开发曾经失败
+                    {% else %}
+                    需求当前处于开发中
+                    {% endif %}
+                </h3>
+                <p class="mt-2 text-sm text-amber-800">
+                    {% if project.status == 'rejected' %}
+                    可以让 dev-agent 重新拾取这条需求再试一次。重试时 sandbox 工作树会自动 hard reset。
+                    {% else %}
+                    如果 dev-agent 卡住了或想换条 PR 重做，可以重置为待派发状态再试一次。
+                    {% endif %}
+                </p>
+            </div>
+            <form method="post" action="/admin/requirements/{{ project.id }}/retry" onsubmit="return confirm('确定让 dev-agent 重新开发这条需求？sandbox 里上次留下的脏改动会被丢弃。')">
+                <button type="submit" class="rounded-2xl bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700">重试开发</button>
+            </form>
+        </div>
+    </section>
+    {% endif %}
+
+    <div class="grid gap-6 lg:grid-cols-2">
+        <section class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+            <h2 class="text-lg font-semibold text-slate-900">基本信息</h2>
+            <dl class="mt-4 space-y-3 text-sm">
+                <div class="flex justify-between gap-4">
+                    <dt class="text-slate-500">所属项目</dt>
+                    <dd class="font-medium text-slate-900">
+                        {% if project.repo %}
+                        <a href="/admin/projects/{{ project.repo.id }}" class="text-blue-600 hover:text-blue-500">{{ project.repo.name }}</a>
+                        {% else %}—{% endif %}
+                    </dd>
+                </div>
+                <div class="flex justify-between gap-4">
+                    <dt class="text-slate-500">提出人</dt>
+                    <dd class="font-medium text-slate-900">{{ project.creator.nickname or project.creator.wechat_user_id if project.creator else '-' }}</dd>
+                </div>
+                <div class="flex justify-between gap-4">
+                    <dt class="text-slate-500">审核人</dt>
+                    <dd class="font-medium text-slate-900">{{ project.approver.nickname or project.approver.wechat_user_id if project.approver else '-' }}</dd>
+                </div>
+                <div class="flex justify-between gap-4">
+                    <dt class="text-slate-500">创建时间</dt>
+                    <dd class="font-medium text-slate-900">{{ project.created_at.strftime("%Y-%m-%d %H:%M:%S") }}</dd>
+                </div>
+                <div class="flex justify-between gap-4">
+                    <dt class="text-slate-500">更新时间</dt>
+                    <dd class="font-medium text-slate-900">{{ project.updated_at.strftime("%Y-%m-%d %H:%M:%S") }}</dd>
+                </div>
+            </dl>
+        </section>
+
+        <section class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+            <h2 class="text-lg font-semibold text-slate-900">GitHub 关联</h2>
+            <dl class="mt-4 space-y-3 text-sm">
+                <div class="flex justify-between gap-4">
+                    <dt class="text-slate-500">Issue</dt>
+                    <dd class="font-medium text-slate-900">
+                        {% if issue_url %}
+                        <a href="{{ issue_url }}" target="_blank" rel="noreferrer" class="text-blue-600 hover:text-blue-500">
+                            #{{ project.github_issue_number }}
+                        </a>
+                        {% else %}
+                        -
+                        {% endif %}
+                    </dd>
+                </div>
+                <div class="flex justify-between gap-4">
+                    <dt class="text-slate-500">PR</dt>
+                    <dd class="font-medium text-slate-900">
+                        {% if pr_url %}
+                        <a href="{{ pr_url }}" target="_blank" rel="noreferrer" class="text-blue-600 hover:text-blue-500">
+                            #{{ project.github_pr_number }}
+                        </a>
+                        {% else %}
+                        -
+                        {% endif %}
+                    </dd>
+                </div>
+                <div class="flex justify-between gap-4">
+                    <dt class="text-slate-500">评分</dt>
+                    <dd class="font-medium text-slate-900">
+                        {% if project.score is not none %}
+                        {{ project.score }}
+                        {% else %}
+                        -
+                        {% endif %}
+                    </dd>
+                </div>
+                <div class="flex justify-between gap-4">
+                    <dt class="text-slate-500">反馈</dt>
+                    <dd class="max-w-sm text-right font-medium text-slate-900">{{ project.feedback or '-' }}</dd>
+                </div>
+            </dl>
+        </section>
+    </div>
+
+    <section class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+        <h2 class="text-lg font-semibold text-slate-900">PRD 内容</h2>
+        <pre class="mt-4 overflow-x-auto rounded-2xl bg-slate-950 p-5 text-sm leading-6 text-slate-100">{{ project.prd_content or '暂无 PRD 内容。' }}</pre>
+    </section>
+</div>
+{% endblock %}

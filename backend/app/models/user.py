@@ -15,6 +15,7 @@ class User(Base):
     wechat_user_id: Mapped[str] = mapped_column(unique=True, index=True)
     nickname: Mapped[str | None]
     role: Mapped[str] = mapped_column(default="user")
+    is_active: Mapped[bool] = mapped_column(default=False, server_default="false")
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
     created_projects: Mapped[list[Project]] = relationship(

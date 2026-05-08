@@ -28,8 +28,17 @@ class GitOps:
 
         self._run_git(["remote", "set-url", "origin", repo_url], cwd=repo_path)
         self._run_git(["fetch", "origin"], cwd=repo_path)
+        self._reset_dirty_sandbox(repo_path)
         self.checkout_main(repo_path)
         return repo_path
+
+    def _reset_dirty_sandbox(self, repo_dir: Path) -> None:
+        status = self._run_git(["status", "--porcelain"], cwd=repo_dir, check=False)
+        if not status.stdout.strip():
+            return
+        # sandbox 目录里的脏改动是上一次失败任务留下来的，没人在乎，强制清掉。
+        self._run_git(["reset", "--hard", "HEAD"], cwd=repo_dir, check=False)
+        self._run_git(["clean", "-fd"], cwd=repo_dir, check=False)
 
     def create_branch(self, repo_path: str | Path, branch_name: str) -> str:
         repo_dir = Path(repo_path)
