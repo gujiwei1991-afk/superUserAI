@@ -37,3 +37,15 @@ class Project(Base):
         "User", foreign_keys=[approver_id], back_populates="approved_projects"
     )
     messages: Mapped[list[Message]] = relationship("Message", back_populates="project")
+    dev_tasks: Mapped[list["DevTask"]] = relationship(
+        "DevTask",
+        back_populates="project",
+        cascade="all, delete-orphan",
+        order_by="DevTask.started_at.desc()",
+    )
+    dev_logs: Mapped[list["ProjectDevLog"]] = relationship(
+        "ProjectDevLog",
+        back_populates="project",
+        cascade="all, delete-orphan",
+        order_by="ProjectDevLog.created_at",
+    )
