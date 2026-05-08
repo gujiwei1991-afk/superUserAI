@@ -127,9 +127,92 @@
         </section>
     </div>
 
+    <section class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200" data-progress-section>
+        <div class="flex flex-wrap items-center justify-between gap-4">
+            <div>
+                <h2 class="text-lg font-semibold text-slate-900">实时开发进度</h2>
+                <p class="mt-1 text-xs text-slate-500">展示 dev-agent 推送的最近 50 条 milestone，开发中状态下每 5 秒自动刷新。</p>
+            </div>
+            <span class="text-xs text-slate-400" data-progress-status>—</span>
+        </div>
+        <ol class="mt-5 space-y-3 text-sm text-slate-700" data-progress-list>
+            <li class="text-slate-400">尚未有进度日志。</li>
+        </ol>
+    </section>
+
     <section class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
         <h2 class="text-lg font-semibold text-slate-900">PRD 内容</h2>
         <pre class="mt-4 overflow-x-auto rounded-2xl bg-slate-950 p-5 text-sm leading-6 text-slate-100">{{ project.prd_content or '暂无 PRD 内容。' }}</pre>
     </section>
 </div>
+
+<script>
+(function () {
+    const section = document.querySelector('[data-progress-section]');
+    if (!section) return;
+    const list = section.querySelector('[data-progress-list]');
+    const statusEl = section.querySelector('[data-progress-status]');
+    const projectId = {{ project.id }};
+    const liveStatuses = new Set(['approved', 'developing', 'deployed']);
+    let timer = null;
+
+    function escapeHtml(text) {
+        return text.replace(/[&<>"']/g, function (c) {
+            return {
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#39;',
+            }[c];
+        });
+    }
+
+    function render(payload) {
+        const logs = payload.logs || [];
+        if (logs.length === 0) {
+            list.innerHTML = '<li class="text-slate-400">尚未有进度日志。</li>';
+            return;
+        }
+        list.innerHTML = logs.map(function (row) {
+            const date = new Date(row.created_at);
+            const time = date.toLocaleString('zh-CN', { hour12: false });
+            return '<li class="flex gap-3"><span class="shrink-0 text-xs text-slate-400 w-36">'
+                + escapeHtml(time)
+                + '</span><span class="flex-1 whitespace-pre-wrap break-words">'
+                + escapeHtml(row.message)
+                + '</span></li>';
+        }).join('');
+    }
+
+    async function tick() {
+        try {
+            const r = await fetch('/admin/api/requirements/' + projectId + '/logs', {
+                credentials: 'same-origin',
+            });
+            if (!r.ok) {
+                statusEl.textContent = '加载失败 ' + r.status;
+                return;
+            }
+            const payload = await r.json();
+            render(payload);
+            const now = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+            statusEl.textContent = '已更新 ' + now;
+            if (!liveStatuses.has(payload.status) && timer !== null) {
+                clearInterval(timer);
+                timer = null;
+                statusEl.textContent += ' · 已停止轮询';
+            }
+        } catch (err) {
+            statusEl.textContent = '加载异常';
+        }
+    }
+
+    tick();
+    const initialStatus = '{{ project.status }}';
+    if (liveStatuses.has(initialStatus)) {
+        timer = setInterval(tick, 5000);
+    }
+})();
+</script>
 {% endblock %}
