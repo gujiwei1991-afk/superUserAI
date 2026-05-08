@@ -8,7 +8,7 @@ from typing import Any
 from urllib.parse import parse_qs, quote_plus
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import delete as sa_delete, func, select
@@ -1103,7 +1103,7 @@ async def admin_requirement_logs(
     project_id: int,
     current_admin: dict[str, Any] = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
-    limit: int = 50,
+    limit: int = Query(default=50, ge=1, le=200),
 ) -> dict[str, Any]:
     del current_admin
     project = await db.get(Project, project_id)
@@ -1114,7 +1114,7 @@ async def admin_requirement_logs(
         select(ProjectDevLog)
         .where(ProjectDevLog.project_id == project_id)
         .order_by(ProjectDevLog.created_at.desc())
-        .limit(max(1, min(limit, 200)))
+        .limit(limit)
     )
     result = await db.execute(stmt)
     rows = list(result.scalars().all())
