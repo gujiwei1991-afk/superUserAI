@@ -21,12 +21,19 @@ class ProjectService:
     async def get_repo_by_name_or_id(self, repo_id: int) -> Repo | None:
         return await self.db.get(Repo, repo_id)
 
-    async def create_project(self, repo_id: int, title: str, creator_id: int) -> Project:
+    async def create_project(
+        self,
+        repo_id: int,
+        title: str,
+        creator_id: int,
+        wechat_group_id: str | None = None,
+    ) -> Project:
         project = Project(
             repo_id=repo_id,
             title=title,
             creator_id=creator_id,
             status=ProjectStatus.DRAFTING.value,
+            wechat_group_id=wechat_group_id,
         )
         self.db.add(project)
         await self.db.flush()

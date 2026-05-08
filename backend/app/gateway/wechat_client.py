@@ -24,6 +24,23 @@ class WeChatClient:
             }
         )
 
+    async def send_at_group(
+        self,
+        chat_room_id: str,
+        at_list: list[str],
+        msg: str,
+    ) -> dict[str, Any]:
+        # vworkApi 群发并 @ 群成员: type=3009, chat_room_id, at_list, msg
+        # msg 文本里需要把 @昵称 也写好,DLL 不会自动拼接 — 调用方负责。
+        return await self._post(
+            {
+                "type": VWorkSendType.SEND_AT_GROUP.value,
+                "chat_room_id": chat_room_id,
+                "at_list": at_list,
+                "msg": msg,
+            }
+        )
+
     async def send_card_link(
         self,
         user_id: str,

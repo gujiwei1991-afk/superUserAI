@@ -29,7 +29,12 @@ class MessageHandler:
         self.project_service = ProjectService(db)
         self.pm_agent = PMAgent()
 
-    async def handle(self, wechat_user_id: str, command: Command) -> str:
+    async def handle(
+        self,
+        wechat_user_id: str,
+        command: Command,
+        group_id: str | None = None,
+    ) -> str:
         reply = "抱歉，当前处理消息时出现异常，请稍后再试。"
         try:
             user = await self.session_manager.get_or_create_user(wechat_user_id)
@@ -46,7 +51,9 @@ class MessageHandler:
 
             match command.type:
                 case "new_project":
-                    reply = await self._handle_new_project(user, session, wechat_user_id, command)
+                    reply = await self._handle_new_project(
+                        user, session, wechat_user_id, command, group_id=group_id
+                    )
                 case "chat":
                     reply = await self._handle_chat(user, session, wechat_user_id, command)
                 case "confirm":
@@ -73,13 +80,19 @@ class MessageHandler:
             logger.exception("Failed to handle message for wechat_user_id=%s", wechat_user_id)
             await self.db.rollback()
 
-        try:
-            await self.wechat.send_text(wechat_user_id, reply)
-        except Exception:
-            logger.exception(
-                "Failed to send WeChat reply for wechat_user_id=%s (DB state already persisted)",
-                wechat_user_id,
-            )
+        if reply:
+            try:
+                if group_id:
+                    await self.wechat.send_at_group(group_id, [wechat_user_id], reply)
+                else:
+                    await self.wechat.send_text(wechat_user_id, reply)
+            except Exception:
+                logger.exception(
+                    "Failed to send WeChat reply for wechat_user_id=%s group_id=%s "
+                    "(DB state already persisted)",
+                    wechat_user_id,
+                    group_id,
+                )
 
         return reply
 
@@ -89,6 +102,7 @@ class MessageHandler:
         session: UserSession,
         wechat_user_id: str,
         command: Command,
+        group_id: str | None = None,
     ) -> str:
         repo_name = str(command.args.get("repo", "")).strip()
         desc = str(command.args.get("desc", "")).strip()
@@ -109,6 +123,7 @@ class MessageHandler:
             repo_id=repo.id,
             title=self._build_project_title(desc),
             creator_id=user.id,
+            wechat_group_id=group_id,
         )
         await self.session_manager.update_session_state(
             session,
