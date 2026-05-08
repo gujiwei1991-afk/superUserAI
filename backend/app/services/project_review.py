@@ -46,24 +46,47 @@ async def create_issue_for_project(
     return issue_number
 
 
+async def notify_creator_targeted(
+    db: AsyncSession,
+    wechat: WeChatClient,
+    project: Project,
+    body: str,
+) -> None:
+    """如果 project 来自群,发到群里并 @ creator;否则私聊 creator。失败仅记录日志。"""
+    creator = await db.get(User, project.creator_id)
+    if creator is None or not creator.wechat_user_id:
+        return
+
+    creator_label = creator.nickname or creator.wechat_user_id
+    try:
+        if project.wechat_group_id:
+            # 群消息: msg 里手动拼上 @昵称 让接收者看到提示,at_list 触发企微高亮通知
+            text = f"@{creator_label} {body}"
+            await wechat.send_at_group(
+                project.wechat_group_id,
+                [creator.wechat_user_id],
+                text,
+            )
+        else:
+            await wechat.send_text(creator.wechat_user_id, body)
+    except Exception:
+        logger.exception(
+            "notify creator failed project=%s group=%s",
+            project.id,
+            project.wechat_group_id,
+        )
+
+
 async def notify_creator_approved(
     db: AsyncSession,
     wechat: WeChatClient,
     project: Project,
 ) -> None:
-    creator = await db.get(User, project.creator_id)
-    if creator is None or not creator.wechat_user_id:
-        return
-    try:
-        await wechat.send_text(
-            creator.wechat_user_id,
-            (
-                f"✅ 你的需求《{project.title}》已通过审核，"
-                "AI 正在排队开发，完成后会再通知你验收。"
-            ),
-        )
-    except Exception:
-        logger.exception("notify creator approved failed project=%s", project.id)
+    body = (
+        f"✅ 你的需求《{project.title}》已通过审核，"
+        "AI 正在排队开发，完成后会再通知你验收。"
+    )
+    await notify_creator_targeted(db, wechat, project, body)
 
 
 async def notify_creator_rejected(
@@ -72,17 +95,11 @@ async def notify_creator_rejected(
     project: Project,
     reason: str,
 ) -> None:
-    creator = await db.get(User, project.creator_id)
-    if creator is None or not creator.wechat_user_id:
-        return
     body = f"⚠️ 你的需求《{project.title}》未通过审核。"
     if reason and reason.strip():
         body += f"\n\n理由：{reason.strip()[:600]}"
     body += "\n\n如需调整请重新发起 #新需求 或联系管理员。"
-    try:
-        await wechat.send_text(creator.wechat_user_id, body)
-    except Exception:
-        logger.exception("notify creator rejected failed project=%s", project.id)
+    await notify_creator_targeted(db, wechat, project, body)
 
 
 async def notify_creator_dev_failed(
@@ -91,14 +108,8 @@ async def notify_creator_dev_failed(
     project: Project,
     reason: str,
 ) -> None:
-    creator = await db.get(User, project.creator_id)
-    if creator is None or not creator.wechat_user_id:
-        return
     body = f"⚠️ 需求《{project.title}》自动开发失败。"
     if reason and reason.strip():
         body += f"\n\n失败原因:\n{reason.strip()[:600]}"
     body += "\n\n已暂时挂起，请联系管理员排查后再决定是否重试。"
-    try:
-        await wechat.send_text(creator.wechat_user_id, body)
-    except Exception:
-        logger.exception("notify creator dev_failed project=%s", project.id)
+    await notify_creator_targeted(db, wechat, project, body)

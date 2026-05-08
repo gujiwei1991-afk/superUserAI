@@ -14,7 +14,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.database import get_db
 from app.gateway.wechat_client import WeChatClient
-from app.models import Project, User
+from app.models import Project
+from app.services.project_review import notify_creator_targeted
 from shared.constants import ProjectStatus
 
 logger = logging.getLogger(__name__)
@@ -132,12 +133,5 @@ async def _notify_project_creator(
     project: Project,
     message: str,
 ) -> None:
-    creator = await db.get(User, project.creator_id)
-    if creator is None or not creator.wechat_user_id:
-        logger.warning("Missing creator or wechat_user_id for project id=%s", project.id)
-        return
-
-    try:
-        await wechat.send_text(creator.wechat_user_id, message)
-    except Exception:
-        logger.exception("Failed to notify creator for project id=%s", project.id)
+    # 走共享 helper:有 group_id 就发群里 @ creator,否则私聊 creator;失败已在 helper 内吞掉。
+    await notify_creator_targeted(db, wechat, project, message)

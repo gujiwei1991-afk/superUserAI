@@ -473,15 +473,6 @@ class MessageHandler:
         return f"已拒绝项目 #{project.id}。"
 
     async def _notify_admins_for_review(self, project: Project) -> None:
-        stmt = select(User).where(
-            User.role == "admin",
-            User.wechat_user_id.is_not(None),
-        )
-        result = await self.db.execute(stmt)
-        admins = list(result.scalars().all())
-        if not admins:
-            return
-
         prd_excerpt = (project.prd_content or "").strip()
         if len(prd_excerpt) > 600:
             prd_excerpt = prd_excerpt[:600] + "…"
@@ -498,6 +489,28 @@ class MessageHandler:
             f"通过:#审核 {project.id} 通过\n"
             f"拒绝:#审核 {project.id} 拒绝 <理由>"
         )
+
+        # 如果项目来自群,直接发到群里(所有成员可见,免逐个私聊 admin)
+        if project.wechat_group_id:
+            try:
+                await self.wechat.send_text(project.wechat_group_id, body)
+                return
+            except Exception:
+                logger.exception(
+                    "notify_review to group failed; falling back to admin DMs project=%s group=%s",
+                    project.id,
+                    project.wechat_group_id,
+                )
+
+        stmt = select(User).where(
+            User.role == "admin",
+            User.wechat_user_id.is_not(None),
+        )
+        result = await self.db.execute(stmt)
+        admins = list(result.scalars().all())
+        if not admins:
+            return
+
         for admin in admins:
             try:
                 await self.wechat.send_text(admin.wechat_user_id, body)
