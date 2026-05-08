@@ -36,6 +36,7 @@ class MessageHandler:
         group_id: str | None = None,
     ) -> str:
         reply = "抱歉，当前处理消息时出现异常，请稍后再试。"
+        user: User | None = None
         try:
             user = await self.session_manager.get_or_create_user(wechat_user_id)
 
@@ -83,7 +84,11 @@ class MessageHandler:
         if reply:
             try:
                 if group_id:
-                    await self.wechat.send_at_group(group_id, [wechat_user_id], reply)
+                    # vworkApi 不会自动给 msg 拼 @昵称,我们手动加上让接收者视觉确认
+                    at_label = (user.nickname if user else None) or wechat_user_id
+                    await self.wechat.send_at_group(
+                        group_id, [wechat_user_id], f"@{at_label} {reply}"
+                    )
                 else:
                     await self.wechat.send_text(wechat_user_id, reply)
             except Exception:
@@ -385,6 +390,7 @@ class MessageHandler:
             "#我的仓库\n"
             "#帮助"
             f"{admin_lines}\n\n"
+            "在群里使用时,请先 @ 机器人 再输入指令,例如:@SuperUserAI #新需求 sandbox 一个 todo 应用。\n"
             "不带 # 的普通文本会继续发送给 PM AI。"
         )
 
@@ -494,6 +500,11 @@ class MessageHandler:
         if project.wechat_group_id:
             try:
                 await self.wechat.send_text(project.wechat_group_id, body)
+                logger.info(
+                    "Sent review notification to group project=%s group=%s",
+                    project.id,
+                    project.wechat_group_id,
+                )
                 return
             except Exception:
                 logger.exception(

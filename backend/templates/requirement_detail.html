@@ -79,6 +79,16 @@
                     <dt class="text-slate-500">更新时间</dt>
                     <dd class="font-medium text-slate-900">{{ project.updated_at.strftime("%Y-%m-%d %H:%M:%S") }}</dd>
                 </div>
+                <div class="flex justify-between gap-4">
+                    <dt class="text-slate-500">来源</dt>
+                    <dd class="font-medium text-slate-900">
+                        {% if project.wechat_group_id %}
+                        企微群 <code class="rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-700">{{ project.wechat_group_id }}</code>
+                        {% else %}
+                        私聊
+                        {% endif %}
+                    </dd>
+                </div>
             </dl>
         </section>
 
