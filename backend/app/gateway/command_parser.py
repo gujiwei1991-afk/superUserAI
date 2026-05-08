@@ -51,6 +51,24 @@ def parse_command(content: str) -> Command:
                 return Command(type="chat", args={"content": content})
 
             return Command(type="score", args={"score": score, "comment": comment})
+        case "#审核":
+            parts = remainder.split(maxsplit=2)
+            if len(parts) < 2:
+                return Command(type="chat", args={"content": content})
+
+            raw_id, decision = parts[0], parts[1]
+            if not raw_id.isdigit() or decision not in {"通过", "拒绝"}:
+                return Command(type="chat", args={"content": content})
+
+            reason = parts[2].strip() if len(parts) == 3 else ""
+            return Command(
+                type="review",
+                args={
+                    "project_id": int(raw_id),
+                    "decision": decision,
+                    "reason": reason,
+                },
+            )
         case "#状态":
             return Command(type="status")
         case "#列表":

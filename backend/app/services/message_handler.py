@@ -9,6 +9,11 @@ from app.agents import PMAgent
 from app.gateway.command_parser import Command
 from app.gateway.wechat_client import WeChatClient
 from app.models import Feedback, Project, Repo, Session as UserSession, User, UserRepo
+from app.services.project_review import (
+    create_issue_for_project,
+    notify_creator_approved,
+    notify_creator_rejected,
+)
 from app.services.project_service import ProjectService
 from app.services.session_manager import SessionManager
 from shared.constants import ProjectStatus, SessionState
@@ -58,6 +63,8 @@ class MessageHandler:
                     reply = await self._handle_my_repos(user)
                 case "help":
                     reply = self._handle_help()
+                case "review":
+                    reply = await self._handle_review_command(user, command)
                 case _:
                     reply = self._handle_help()
 
@@ -389,6 +396,58 @@ class MessageHandler:
         lines.append("")
         lines.append("提需求格式：#新需求 <仓库别名> <需求描述>")
         return "\n".join(lines)
+
+    async def _handle_review_command(self, user: User, command: Command) -> str:
+        if user.role != "admin":
+            return "只有管理员可以使用 #审核 命令。"
+
+        try:
+            project_id = int(command.args.get("project_id"))
+            decision = str(command.args.get("decision", ""))
+        except (TypeError, ValueError):
+            return "审核命令参数解析失败,请使用:#审核 <项目id> 通过/拒绝 [理由]"
+        reason = str(command.args.get("reason", ""))
+
+        project = await self.db.get(Project, project_id)
+        if project is None:
+            return f"找不到项目 #{project_id}。"
+
+        if project.status != ProjectStatus.REVIEWING.value:
+            return (
+                f"项目 #{project.id} 当前状态是「{self._status_label(project.status)}」,"
+                "不是待审核,无法审批。"
+            )
+
+        repo = await self.db.get(Repo, project.repo_id) if project.repo_id else None
+
+        if decision == "通过":
+            if repo is None:
+                return "项目没有关联仓库,无法创建 GitHub Issue。"
+            try:
+                issue_number = await create_issue_for_project(
+                    self.db,
+                    project=project,
+                    repo=repo,
+                    approver_id=user.id,
+                )
+            except Exception as exc:
+                logger.exception("create_issue_for_project failed for project=%s", project.id)
+                await self.db.rollback()
+                return f"创建 GitHub Issue 失败:{exc}"
+            await self.db.flush()
+            await self.db.refresh(project)
+            await notify_creator_approved(self.db, self.wechat, project)
+            return (
+                f"✅ 已审核通过项目 #{project.id},"
+                f"GitHub Issue #{issue_number} 已创建,dev-agent 30 秒内会拾取。"
+            )
+
+        # 拒绝路径
+        project.status = ProjectStatus.REJECTED.value
+        await self.db.flush()
+        await self.db.refresh(project)
+        await notify_creator_rejected(self.db, self.wechat, project, reason)
+        return f"已拒绝项目 #{project.id}。"
 
     async def _notify_admins_for_review(self, project: Project) -> None:
         stmt = select(User).where(
