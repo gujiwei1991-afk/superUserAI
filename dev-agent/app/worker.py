@@ -63,7 +63,7 @@ class Worker:
             base_branch = await asyncio.to_thread(self.git_ops.create_branch, repo_path, branch_name)
 
             async def push_milestone(message: str) -> None:
-                await self._post_progress(project_id, message)
+                await self._post_log(project_id, message)
 
             issue_body = issue.get("body") or ""
             prompt = (
@@ -210,12 +210,12 @@ class Worker:
                 exc_info=True,
             )
 
-    async def _post_progress(self, project_id: int, message: str) -> None:
+    async def _post_log(self, project_id: int, message: str) -> None:
         try:
             response = await self.backend_client.post(
-                f"/api/projects/{project_id}/notify",
+                f"/api/projects/{project_id}/logs",
                 json={"message": message},
             )
             response.raise_for_status()
         except Exception:
-            logger.warning("Failed to push progress to backend: %s", message, exc_info=True)
+            logger.warning("Failed to push log to backend: %s", message, exc_info=True)
