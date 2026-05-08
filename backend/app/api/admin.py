@@ -28,6 +28,11 @@ from app.gateway.wechat_client import WeChatClient
 from app.models import DevTask, Project, ProjectDevLog, Repo, SystemConfig, User, UserRepo
 from app.services.config_service import ConfigService
 from app.services.github_service import GitHubService
+from app.services.project_review import (
+    create_issue_for_project,
+    notify_creator_approved,
+    notify_creator_rejected,
+)
 from app.services.project_service import ProjectService
 from shared.constants import ProjectStatus
 
@@ -36,6 +41,7 @@ templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+wechat = WeChatClient()
 
 STATUS_LABELS = {
     ProjectStatus.DRAFTING.value: "需求沟通中",
@@ -306,11 +312,6 @@ def _normalize_url(url: str) -> str:
     return url.strip().rstrip("/")
 
 
-def _github_service_for_repo(repo: Repo) -> GitHubService:
-    token = repo.github_token_encrypted if repo.has_custom_github_token else get_settings().github_token
-    return GitHubService(token=token)
-
-
 def _format_github_error(exc: Exception) -> str:
     if isinstance(exc, httpx.HTTPStatusError):
         try:
@@ -367,7 +368,7 @@ async def _check_one_webhook(repo: Repo, callback_url: str) -> tuple[int, bool]:
     if cached is not None and _time.monotonic() - cached[0] < _WEBHOOK_STATUS_TTL_SECONDS:
         return repo.id, cached[1]
 
-    github = _github_service_for_repo(repo)
+    github = GitHubService.for_repo(repo)
     try:
         hooks = await asyncio.wait_for(
             github.list_webhooks(repo.github_owner, repo.github_repo),
@@ -498,40 +499,6 @@ def _redirect_to_projects(
     )
 
 
-async def _create_issue_for_project(
-    db: AsyncSession,
-    *,
-    project: Project,
-    repo: Repo,
-    approver_id: int,
-) -> int:
-    github = _github_service_for_repo(repo)
-    footer = f"---\nSuperUserAI Project ID: {project.id}"
-    issue_body = (
-        f"{project.prd_content.strip()}\n\n{footer}"
-        if project.prd_content and project.prd_content.strip()
-        else footer
-    )
-
-    try:
-        issue_data = await github.create_issue(
-            owner=repo.github_owner,
-            repo=repo.github_repo,
-            title=f"[SuperUserAI] {project.title}",
-            body=issue_body,
-            labels=["superuserai", "auto-dev"],
-        )
-    finally:
-        await github.close()
-
-    issue_number = int(issue_data["number"])
-    project.github_issue_number = issue_number
-    project.approver_id = approver_id
-    project.status = ProjectStatus.APPROVED.value
-    await db.flush()
-    return issue_number
-
-
 async def _configure_repo_webhook(
     request: Request,
     db: AsyncSession,
@@ -539,7 +506,7 @@ async def _configure_repo_webhook(
 ) -> dict[str, str]:
     callback_url = await _build_webhook_callback_url(request, db)
     secret = await ConfigService(db).get("github_webhook_secret", "")
-    github = _github_service_for_repo(repo)
+    github = GitHubService.for_repo(repo)
 
     try:
         hooks = await github.list_webhooks(repo.github_owner, repo.github_repo)
@@ -801,7 +768,7 @@ async def approve_review(
 
     project_service = ProjectService(db)
     try:
-        await _create_issue_for_project(
+        await create_issue_for_project(
             db,
             project=project,
             repo=project.repo,
@@ -826,6 +793,8 @@ async def approve_review(
             },
         )
 
+    await db.refresh(project)
+    await notify_creator_approved(db, wechat, project)
     return RedirectResponse(
         url=request.url_for("admin_requirement_detail", project_id=project_id),
         status_code=status.HTTP_303_SEE_OTHER,
@@ -848,6 +817,8 @@ async def reject_review(
 
     project.status = ProjectStatus.REJECTED.value
     await db.commit()
+    await db.refresh(project)
+    await notify_creator_rejected(db, wechat, project, reason="")
 
     return RedirectResponse(
         url=request.url_for("admin_requirement_detail", project_id=project_id),

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
 from app.config import get_settings
+
+if TYPE_CHECKING:
+    from app.models import Repo
 
 
 class GitHubService:
@@ -22,6 +25,11 @@ class GitHubService:
             headers=headers,
             timeout=30.0,
         )
+
+    @classmethod
+    def for_repo(cls, repo: "Repo") -> "GitHubService":
+        token = repo.github_token_encrypted if repo.has_custom_github_token else get_settings().github_token
+        return cls(token=token)
 
     async def create_issue(
         self,

@@ -11,7 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.gateway.wechat_client import WeChatClient
-from app.models import DevTask, Project, ProjectDevLog, Repo, User
+from app.models import DevTask, Project, ProjectDevLog, Repo
+from app.services.project_review import notify_creator_rejected
 from shared.constants import ProjectStatus
 
 logger = logging.getLogger(__name__)
@@ -119,19 +120,7 @@ async def fail_task(
     await db.commit()
     await db.refresh(project)
 
-    creator = await db.get(User, project.creator_id)
-    if creator is not None and creator.wechat_user_id:
-        try:
-            await wechat.send_text(
-                creator.wechat_user_id,
-                (
-                    f"⚠️ 需求《{project.title}》自动开发失败：\n\n"
-                    f"{payload.reason[:600]}\n\n"
-                    "已暂时挂起，请联系管理员排查后再决定是否重试。"
-                ),
-            )
-        except Exception:
-            logger.exception("notify creator failed for project_id=%s", project_id)
+    await notify_creator_rejected(db, wechat, project, payload.reason)
 
     return {"status": "ok", "project_id": project.id}
 
