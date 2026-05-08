@@ -193,6 +193,7 @@ class MessageHandler:
             "assistant",
             "PRD 已生成，项目状态已更新为 reviewing。",
         )
+        await self._notify_admins_for_review(project)
 
         return (
             "已根据当前对话生成 PRD，项目状态已更新为待审核。\n\n"
@@ -388,6 +389,42 @@ class MessageHandler:
         lines.append("")
         lines.append("提需求格式：#新需求 <仓库别名> <需求描述>")
         return "\n".join(lines)
+
+    async def _notify_admins_for_review(self, project: Project) -> None:
+        stmt = select(User).where(
+            User.role == "admin",
+            User.wechat_user_id.is_not(None),
+        )
+        result = await self.db.execute(stmt)
+        admins = list(result.scalars().all())
+        if not admins:
+            return
+
+        prd_excerpt = (project.prd_content or "").strip()
+        if len(prd_excerpt) > 600:
+            prd_excerpt = prd_excerpt[:600] + "…"
+
+        creator = await self.db.get(User, project.creator_id)
+        creator_name = (
+            (creator.nickname or creator.wechat_user_id) if creator else "未知"
+        )
+        body = (
+            f"📝 新需求待审核 #{project.id}\n"
+            f"标题:{project.title}\n"
+            f"提出人:{creator_name}\n\n"
+            f"PRD 摘要:\n{prd_excerpt or '(空)'}\n\n"
+            f"通过:#审核 {project.id} 通过\n"
+            f"拒绝:#审核 {project.id} 拒绝 <理由>"
+        )
+        for admin in admins:
+            try:
+                await self.wechat.send_text(admin.wechat_user_id, body)
+            except Exception:
+                logger.exception(
+                    "notify admin failed admin=%s project=%s",
+                    admin.wechat_user_id,
+                    project.id,
+                )
 
     async def _user_can_access_repo(self, user: User, repo_id: int) -> bool:
         if user.role == "admin":
