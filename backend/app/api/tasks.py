@@ -8,9 +8,11 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from datetime import datetime, timezone
+
 from app.database import get_db
 from app.gateway.wechat_client import WeChatClient
-from app.models import Project, Repo, User
+from app.models import DevTask, Project, ProjectDevLog, Repo, User
 from shared.constants import ProjectStatus
 
 logger = logging.getLogger(__name__)
@@ -21,9 +23,15 @@ wechat = WeChatClient()
 
 class CompleteTaskRequest(BaseModel):
     pr_number: int = Field(gt=0)
+    branch: str | None = None
+    summary: str | None = None
 
 
-class NotifyProjectRequest(BaseModel):
+class FailTaskRequest(BaseModel):
+    reason: str = Field(min_length=1, max_length=4000)
+
+
+class LogProgressRequest(BaseModel):
     message: str = Field(min_length=1, max_length=2000)
 
 
@@ -62,6 +70,19 @@ async def complete_task(
 
     project.github_pr_number = payload.pr_number
     project.status = ProjectStatus.DEVELOPING.value
+
+    db.add(
+        DevTask(
+            project_id=project.id,
+            repo_id=project.repo_id,
+            branch=payload.branch,
+            pr_number=payload.pr_number,
+            status="pr_open",
+            summary=payload.summary,
+            finished_at=datetime.now(timezone.utc),
+        )
+    )
+
     await db.commit()
     await db.refresh(project)
 
@@ -72,24 +93,60 @@ async def complete_task(
     }
 
 
-@router.post("/projects/{project_id}/notify")
-async def notify_project(
+@router.post("/tasks/{project_id}/failed")
+async def fail_task(
     project_id: int,
-    payload: NotifyProjectRequest,
+    payload: FailTaskRequest,
     db: AsyncSession = Depends(get_db),
-) -> dict[str, str]:
+) -> dict[str, Any]:
     project = await db.get(Project, project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    creator = await db.get(User, project.creator_id)
-    if creator is None or not creator.wechat_user_id:
-        logger.warning("notify_project: project %s has no reachable creator", project_id)
-        return {"status": "skipped"}
+    project.status = ProjectStatus.REJECTED.value
 
-    try:
-        await wechat.send_text(creator.wechat_user_id, payload.message)
-        return {"status": "ok"}
-    except Exception:
-        logger.exception("notify_project: failed to send WeChat message to %s", creator.wechat_user_id)
-        return {"status": "send_failed"}
+    db.add(
+        DevTask(
+            project_id=project.id,
+            repo_id=project.repo_id,
+            branch=None,
+            pr_number=None,
+            status="failed",
+            summary=payload.reason[:4000],
+            finished_at=datetime.now(timezone.utc),
+        )
+    )
+
+    await db.commit()
+    await db.refresh(project)
+
+    creator = await db.get(User, project.creator_id)
+    if creator is not None and creator.wechat_user_id:
+        try:
+            await wechat.send_text(
+                creator.wechat_user_id,
+                (
+                    f"⚠️ 需求《{project.title}》自动开发失败：\n\n"
+                    f"{payload.reason[:600]}\n\n"
+                    "已暂时挂起，请联系管理员排查后再决定是否重试。"
+                ),
+            )
+        except Exception:
+            logger.exception("notify creator failed for project_id=%s", project_id)
+
+    return {"status": "ok", "project_id": project.id}
+
+
+@router.post("/projects/{project_id}/logs")
+async def log_progress(
+    project_id: int,
+    payload: LogProgressRequest,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    project = await db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    db.add(ProjectDevLog(project_id=project_id, message=payload.message))
+    await db.commit()
+    return {"status": "ok"}
