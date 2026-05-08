@@ -209,7 +209,7 @@
     }
 
     tick();
-    const initialStatus = '{{ project.status }}';
+    const initialStatus = {{ project.status | tojson }};
     if (liveStatuses.has(initialStatus)) {
         timer = setInterval(tick, 5000);
     }

@@ -257,6 +257,7 @@ class MessageHandler:
             "assistant",
             "PRD 已根据最新反馈完成更新。",
         )
+        await self._notify_admins_for_review(project)
 
         return f"已根据你的反馈更新 PRD：\n\n{updated_prd}"
 

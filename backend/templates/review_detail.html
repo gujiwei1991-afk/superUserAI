@@ -18,13 +18,14 @@
         </div>
 
         {% if project.status == 'reviewing' %}
-        <div class="flex gap-3">
+        <div class="flex flex-col gap-3 lg:flex-row lg:items-start">
             <form method="post" action="/admin/reviews/{{ project.id }}/approve">
                 <button type="submit" class="rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-medium text-white hover:bg-emerald-500">
                     批准并创建 Issue
                 </button>
             </form>
-            <form method="post" action="/admin/reviews/{{ project.id }}/reject">
+            <form method="post" action="/admin/reviews/{{ project.id }}/reject" class="flex flex-col gap-2 lg:w-80">
+                <textarea name="reason" rows="2" maxlength="600" placeholder="驳回理由（选填，会推送给提需求人）" class="rounded-2xl border border-slate-200 px-4 py-2 text-sm text-slate-700 placeholder:text-slate-400 focus:border-rose-300 focus:outline-none"></textarea>
                 <button type="submit" class="rounded-2xl bg-rose-600 px-5 py-3 text-sm font-medium text-white hover:bg-rose-500">
                     驳回项目
                 </button>

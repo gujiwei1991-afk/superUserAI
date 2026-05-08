@@ -815,10 +815,13 @@ async def reject_review(
             detail="Only reviewing projects can be rejected",
         )
 
+    form = await request.form()
+    reason = str(form.get("reason", "")).strip()
+
     project.status = ProjectStatus.REJECTED.value
     await db.commit()
     await db.refresh(project)
-    await notify_creator_rejected(db, wechat, project, reason="")
+    await notify_creator_rejected(db, wechat, project, reason)
 
     return RedirectResponse(
         url=request.url_for("admin_requirement_detail", project_id=project_id),
