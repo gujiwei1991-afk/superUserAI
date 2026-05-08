@@ -23,6 +23,7 @@ class Project(Base):
     tech_doc: Mapped[str | None] = mapped_column(Text)
     score: Mapped[float | None]
     feedback: Mapped[str | None] = mapped_column(Text)
+    wechat_group_id: Mapped[str | None]
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         server_default=func.now(),
