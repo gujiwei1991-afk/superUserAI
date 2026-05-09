@@ -39,27 +39,59 @@ class ClaudeAdapter(BaseLLM):
                     text_parts.append(text)
         return "".join(text_parts)
 
+    @staticmethod
+    def _convert_content_to_anthropic(content: Any) -> Any:
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            blocks: list[dict[str, Any]] = []
+            for part in content:
+                if not isinstance(part, dict):
+                    continue
+                ptype = part.get("type")
+                if ptype == "text":
+                    text = part.get("text")
+                    if isinstance(text, str) and text:
+                        blocks.append({"type": "text", "text": text})
+                elif ptype == "image_url":
+                    url_obj = part.get("image_url") or {}
+                    url = url_obj.get("url") if isinstance(url_obj, dict) else None
+                    if isinstance(url, str) and url:
+                        blocks.append({
+                            "type": "image",
+                            "source": {"type": "url", "url": url},
+                        })
+            return blocks if blocks else ""
+        return ""
+
     def _prepare_messages(
         self,
         messages: Sequence[Mapping[str, Any]],
-    ) -> tuple[str | None, list[dict[str, str]]]:
+    ) -> tuple[str | None, list[dict[str, Any]]]:
         system_parts: list[str] = []
-        claude_messages: list[dict[str, str]] = []
+        claude_messages: list[dict[str, Any]] = []
 
-        for message in self._normalize_messages(messages):
+        for message in self._normalize_messages_keep_multimodal(messages):
             role = message["role"]
             content = message["content"]
 
             if role == "system":
-                if content:
+                if isinstance(content, list):
+                    text = "".join(
+                        p.get("text", "") for p in content
+                        if isinstance(p, dict) and p.get("type") == "text"
+                    )
+                    if text:
+                        system_parts.append(text)
+                elif content:
                     system_parts.append(content)
                 continue
 
+            converted = self._convert_content_to_anthropic(content)
             if role == "assistant":
-                claude_messages.append({"role": "assistant", "content": content})
-                continue
-
-            claude_messages.append({"role": "user", "content": content})
+                claude_messages.append({"role": "assistant", "content": converted})
+            else:
+                claude_messages.append({"role": "user", "content": converted})
 
         if not claude_messages:
             claude_messages.append({"role": "user", "content": " "})
