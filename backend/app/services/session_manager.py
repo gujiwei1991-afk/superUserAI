@@ -42,7 +42,15 @@ class SessionManager:
         state: SessionState,
         project_id: int | None = None,
     ) -> UserSession:
-        session.state = state.value
-        session.active_project_id = project_id
+        # Re-fetch with row lock so two concurrent in-flight group messages
+        # for the same user can't overwrite each other's active_project_id.
+        stmt = (
+            select(UserSession)
+            .where(UserSession.id == session.id)
+            .with_for_update()
+        )
+        locked = (await self.db.execute(stmt)).scalar_one()
+        locked.state = state.value
+        locked.active_project_id = project_id
         await self.db.flush()
-        return session
+        return locked
