@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import AsyncIterator, Mapping, Sequence
 from typing import Any
 
 import httpx
 
 from app.llm.base import BaseLLM, LLMResponse
+
+logger = logging.getLogger(__name__)
 
 
 class OllamaAdapter(BaseLLM):
@@ -24,6 +27,33 @@ class OllamaAdapter(BaseLLM):
     def _endpoint(self) -> str:
         return f"{self.base_url}/api/chat"
 
+    @classmethod
+    def _strip_images(
+        cls,
+        messages: Sequence[Mapping[str, Any]],
+    ) -> list[dict[str, str]]:
+        normalized = cls._normalize_messages_keep_multimodal(messages)
+        out: list[dict[str, str]] = []
+        for m in normalized:
+            content = m["content"]
+            if isinstance(content, list):
+                texts = [
+                    p.get("text", "") for p in content
+                    if isinstance(p, dict) and p.get("type") == "text"
+                ]
+                if any(
+                    isinstance(p, dict) and p.get("type") == "image_url"
+                    for p in content
+                ):
+                    logger.warning(
+                        "ollama_adapter: dropping image parts (provider lacks vision); "
+                        "consider switching llm_provider for image-input flows"
+                    )
+                out.append({"role": m["role"], "content": "\n".join(texts)})
+            else:
+                out.append({"role": m["role"], "content": content})
+        return out
+
     async def chat(
         self,
         messages: Sequence[Mapping[str, Any]],
@@ -31,7 +61,7 @@ class OllamaAdapter(BaseLLM):
     ) -> LLMResponse:
         payload = {
             "model": self.model,
-            "messages": self._normalize_messages(messages),
+            "messages": self._strip_images(messages),
             "stream": False,
             **kwargs,
         }
@@ -55,7 +85,7 @@ class OllamaAdapter(BaseLLM):
     ) -> AsyncIterator[str]:
         payload = {
             "model": self.model,
-            "messages": self._normalize_messages(messages),
+            "messages": self._strip_images(messages),
             "stream": True,
             **kwargs,
         }
