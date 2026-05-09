@@ -90,10 +90,16 @@ class Worker:
         if isinstance(dev_task_id, int):
             await self.mark_started(dev_task_id)
 
-        repo_path = await asyncio.to_thread(self.git_ops.clone_or_pull, github_owner, github_repo)
+        repo_path_obj, base_branch = await asyncio.to_thread(
+            self.git_ops.prepare_workspace,
+            github_owner=github_owner,
+            github_repo=github_repo,
+            local_path=task.get("local_path"),
+            branch_name=branch_name,
+        )
+        repo_path = str(repo_path_obj)
         try:
             issue = await self._get_issue(github_owner, github_repo, issue_number)
-            base_branch = await asyncio.to_thread(self.git_ops.create_branch, repo_path, branch_name)
 
             async def push_milestone(message: str) -> None:
                 await self._post_log(project_id, message)
@@ -145,10 +151,15 @@ class Worker:
                 summary=run_result.summary,
             )
         finally:
-            try:
-                await asyncio.to_thread(self.git_ops.checkout_main, repo_path)
-            except Exception:
-                logger.exception("Failed to restore default branch for %s", repo_path)
+            # In worktree mode the path stays on feat/issue-N (worktree owns its
+            # HEAD; the main repo's main branch is unaffected). In sandbox mode
+            # we still checkout main so the next task starts from a clean state.
+            is_sandbox = "/superuserai/workspace/" in str(repo_path)
+            if is_sandbox:
+                try:
+                    await asyncio.to_thread(self.git_ops.checkout_main, repo_path)
+                except Exception:
+                    logger.exception("Failed to restore default branch for %s", repo_path)
 
     async def run(self, interval: int = 30) -> None:
         try:
