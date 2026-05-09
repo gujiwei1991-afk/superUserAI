@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 1440
     intent_llm_model: str = ""  # empty = use llm_model
-    intent_llm_timeout_seconds: float = 5.0
+    intent_llm_timeout_seconds: float = 15.0  # claude_cli cold start needs slack
     group_bound_auto_activate: bool = True
     pmagent_ready_hint_after_turns: int = 3
     image_bridge_url: str = ""              # http://1.94.215.136:9100

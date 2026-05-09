@@ -34,6 +34,8 @@ class IntentResult:
 
 
 # Keyword sets — adjust freely; tests pin the *behavior*, not exact words.
+# These get the message into the CONFIRM_CANDIDATE bucket; LLM verifier has
+# the final say so being generous here is fine.
 _CONFIRM_WORDS = (
     "确认",
     "通过",
@@ -45,6 +47,13 @@ _CONFIRM_WORDS = (
     "ok 了",
     "好了就这",
     "可以开始",
+    "做吧",
+    "嗯好",
+    "好的就这",
+    "这就开发",
+    "可以开发",
+    "提交吧",
+    "提交审核",
 )
 _MODIFY_WORDS = ("改", "调", "不对", "重新", "再")
 _STATUS_WORDS = ("进度", "状态", "到哪", "怎么样", "进展")
