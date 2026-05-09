@@ -140,6 +140,23 @@ class ClaudeCoder:
 
             await proc.wait()
         finally:
+            # Hard cleanup: ensure subprocess is gone before returning, regardless
+            # of whether we exited via the happy path or an exception. Without this,
+            # an exception in the streaming loop leaves a runaway claude that keeps
+            # editing files / pushing to GitHub even though the worker has bailed.
+            if proc.returncode is None:
+                try:
+                    proc.kill()
+                except ProcessLookupError:
+                    pass
+                try:
+                    await asyncio.wait_for(proc.wait(), timeout=5.0)
+                except asyncio.TimeoutError:
+                    logger.warning(
+                        "claude subprocess did not exit within 5s after kill; PID=%s",
+                        proc.pid,
+                    )
+
             stderr_task.cancel()
             try:
                 await stderr_task
