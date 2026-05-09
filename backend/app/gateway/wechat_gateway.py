@@ -44,6 +44,25 @@ async def _process_message_async(
             )
 
 
+async def _process_bound_group_image_async(
+    user_id: str,
+    group_id: str,
+    image_meta: dict,
+    msg_id: str,
+) -> None:
+    from app.services.group_image_handler import GroupImageHandler
+
+    async with AsyncSessionLocal() as db:
+        try:
+            handler = GroupImageHandler(db, wechat)
+            await handler.try_handle(user_id, group_id, image_meta, msg_id)
+        except Exception:
+            logger.exception(
+                "group_image processing failed user_id=%s group_id=%s msg_id=%s",
+                user_id, group_id, msg_id,
+            )
+
+
 async def _process_bound_group_message_async(
     user_id: str,
     group_id: str,
@@ -81,9 +100,28 @@ async def receive_message(
         logger.debug("Ignoring self message: msg_id=%s", message.msg_id)
         return {"status": "ok"}
 
+    # Image branch: only groups, only when content is the expected dict shape.
+    if message.msg_type == VWorkMsgType.IMAGE.value:
+        if not message.sender:
+            return {"status": "ok"}  # ignore private images
+        if not isinstance(message.content, dict):
+            logger.warning("image msg with non-dict content: msg_id=%s", message.msg_id)
+            return {"status": "ok"}
+        sender_id = message.sender
+        group_id_image: str | None = message.user_id
+        logger.info(
+            "Received WeChat image: msg_id=%s user=%s group=%s",
+            message.msg_id, sender_id, group_id_image,
+        )
+        background_tasks.add_task(
+            _process_bound_group_image_async,
+            sender_id, group_id_image, message.content, message.msg_id,
+        )
+        return {"status": "ok"}
+
     if message.msg_type != VWorkMsgType.TEXT.value:
         logger.info(
-            "Ignoring non-text message: msg_id=%s msg_type=%s",
+            "Ignoring non-text non-image message: msg_id=%s msg_type=%s",
             message.msg_id,
             message.msg_type,
         )
