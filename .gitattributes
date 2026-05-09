@@ -1,0 +1,3 @@
+# Ensure Windows-edited files render correctly in notepad on first checkout.
+# Affects only `.env.example` files we expect Windows operators to copy + edit.
+vworkapi-bridge/.env.example text eol=crlf
