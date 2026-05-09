@@ -24,6 +24,26 @@ class SessionManager:
         await self.db.flush()
         return user
 
+    async def get_or_create_user_for_bound_group(
+        self,
+        wechat_user_id: str,
+        auto_activate: bool,
+    ) -> tuple[User, bool]:
+        """Like get_or_create_user, but auto-activates whitelist for *new* users
+        when they first speak in a bound group. Returns (user, was_just_created).
+        """
+        stmt = select(User).where(User.wechat_user_id == wechat_user_id)
+        existing = (await self.db.execute(stmt)).scalar_one_or_none()
+        if existing is not None:
+            return existing, False
+
+        user = User(wechat_user_id=wechat_user_id)
+        if auto_activate:
+            user.is_active = True
+        self.db.add(user)
+        await self.db.flush()
+        return user, True
+
     async def get_session(self, user: User) -> UserSession:
         stmt = select(UserSession).where(UserSession.user_id == user.id)
         result = await self.db.execute(stmt)
