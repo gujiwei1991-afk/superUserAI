@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import imghdr
 import logging
 from pathlib import Path
 
@@ -36,11 +35,20 @@ class QiniuUploader:
 
     @staticmethod
     def _detect_media_type(path: Path) -> tuple[str, str]:
-        kind = imghdr.what(path) or "jpeg"
-        ext_map = {"jpeg": "jpg", "png": "png", "gif": "gif", "webp": "webp"}
-        ext = ext_map.get(kind, "jpg")
-        media_type = f"image/{kind if kind != 'jpg' else 'jpeg'}"
-        return ext, media_type
+        """Sniff file format from magic bytes. Replaces stdlib imghdr removed in 3.13."""
+        with path.open("rb") as f:
+            head = f.read(16)
+        if head.startswith(b"\xff\xd8\xff"):
+            return "jpg", "image/jpeg"
+        if head.startswith(b"\x89PNG\r\n\x1a\n"):
+            return "png", "image/png"
+        if head[:6] in (b"GIF87a", b"GIF89a"):
+            return "gif", "image/gif"
+        if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+            return "webp", "image/webp"
+        # Default to jpeg — vworkApi gives high-quality WeChat images that are
+        # almost always JPEG even when the extension says otherwise.
+        return "jpg", "image/jpeg"
 
     async def upload(self, path: Path, key_prefix: str = "sua/") -> tuple[str, str]:
         if not path.exists():
