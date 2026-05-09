@@ -7,6 +7,19 @@ from app.llm import BaseLLM, create_llm
 from app.models import Message, Project, Repo
 
 
+READY_MARKER = "[READY_TO_CONFIRM]"
+
+
+def has_ready_marker(text: str) -> bool:
+    return READY_MARKER in (text or "")
+
+
+def strip_ready_marker(text: str) -> str:
+    if not text:
+        return text
+    return text.replace(READY_MARKER, "").rstrip()
+
+
 class PMAgent:
     def __init__(self, llm: BaseLLM | None = None) -> None:
         self.llm = llm or create_llm()
@@ -97,3 +110,9 @@ class PMAgent:
         if normalized_role in {"assistant", "system"}:
             return normalized_role
         return "user"
+
+    def build_confirm_hint(self) -> str:
+        return (
+            "\n\n如果上面理解没问题，请回复『确认』，我就把它提交审核。\n"
+            "如果还要调整，直接告诉我哪里要改即可。"
+        )
