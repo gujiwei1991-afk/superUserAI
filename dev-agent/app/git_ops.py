@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
 import os
 import subprocess
 from pathlib import Path
 from urllib.parse import quote
 
 from app.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 
 class GitOps:
@@ -14,6 +17,121 @@ class GitOps:
         self.github_token = settings.github_token
         self.workspace_dir = Path(settings.workspace_dir).expanduser()
         self.workspace_dir.mkdir(parents=True, exist_ok=True)
+
+    def prepare_workspace(
+        self,
+        *,
+        github_owner: str,
+        github_repo: str,
+        local_path: str | None,
+        branch_name: str,
+    ) -> tuple[Path, str]:
+        """Pick worktree mode if local_path is set and valid; else sandbox.
+
+        Returns (working_path, base_branch).
+        """
+        if local_path:
+            local_dir = Path(local_path).expanduser().resolve()
+            if local_dir.is_dir() and (local_dir / ".git").exists():
+                logger.info(
+                    "prepare_workspace mode=worktree local_path=%s repo=%s/%s",
+                    local_dir, github_owner, github_repo,
+                )
+                return self._prepare_worktree(local_dir, branch_name)
+            logger.warning(
+                "prepare_workspace local_path=%s is not a git repo, "
+                "falling back to sandbox clone for %s/%s",
+                local_path, github_owner, github_repo,
+            )
+
+        logger.info(
+            "prepare_workspace mode=sandbox repo=%s/%s",
+            github_owner, github_repo,
+        )
+        repo_path = Path(self.clone_or_pull(github_owner, github_repo))
+        base_branch = self.create_branch(repo_path, branch_name)
+        return repo_path, base_branch
+
+    def _prepare_worktree(
+        self,
+        local_dir: Path,
+        branch_name: str,
+    ) -> tuple[Path, str]:
+        """Create or reuse a worktree at <local_dir>-superuserai/<safe-branch>.
+
+        Returns (worktree_path, base_branch).
+        """
+        parent_name = local_dir.name + "-superuserai"
+        worktree_root = local_dir.parent / parent_name
+        worktree_root.mkdir(parents=True, exist_ok=True)
+
+        # Sanitize branch name into a directory-friendly form.
+        # `feat/issue-3` → `feat-issue-3`
+        safe_name = branch_name.replace("/", "-")
+        worktree_path = worktree_root / safe_name
+
+        # Refresh remote refs from the main repo first.
+        self._run_git(["fetch", "origin"], cwd=local_dir)
+        # Prune any stale worktree metadata pointing at deleted directories.
+        self._run_git(["worktree", "prune"], cwd=local_dir, check=False)
+
+        base_branch = self._detect_default_branch(local_dir)
+
+        if worktree_path.exists():
+            logger.info(
+                "prepare_workspace: reusing existing worktree at %s "
+                "(reset to origin/%s, recreate %s)",
+                worktree_path, base_branch, branch_name,
+            )
+            self._run_git(["fetch", "origin"], cwd=worktree_path)
+            # Force the worktree onto a fresh branch from origin/<base>.
+            self._run_git(
+                ["checkout", "-B", branch_name, f"origin/{base_branch}"],
+                cwd=worktree_path,
+            )
+            # Drop any leftover untracked files / changes.
+            self._run_git(["reset", "--hard", f"origin/{base_branch}"], cwd=worktree_path)
+            self._run_git(["clean", "-fd"], cwd=worktree_path, check=False)
+        else:
+            logger.info(
+                "prepare_workspace: creating worktree at %s (branch=%s base=origin/%s)",
+                worktree_path, branch_name, base_branch,
+            )
+            self._run_git(
+                ["worktree", "add", "-B", branch_name, str(worktree_path),
+                 f"origin/{base_branch}"],
+                cwd=local_dir,
+            )
+
+        return worktree_path, base_branch
+
+    def _detect_default_branch(self, repo_dir: Path) -> str:
+        """Return the remote's default branch name (origin/HEAD target).
+
+        Falls back to 'main' if the symbolic ref can't be resolved.
+        """
+        try:
+            result = self._run_git(
+                ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
+                cwd=repo_dir,
+                check=False,
+            )
+            if result.returncode != 0:
+                logger.warning(
+                    "could not detect default branch for %s; defaulting to 'main'",
+                    repo_dir,
+                )
+                return "main"
+            ref = result.stdout.strip()
+            if ref.startswith("origin/"):
+                return ref[len("origin/"):]
+            return ref or "main"
+        except Exception:
+            logger.exception(
+                "default branch detection failed for %s; defaulting to 'main'",
+                repo_dir,
+            )
+            return "main"
 
     def clone_or_pull(self, github_owner: str, github_repo: str) -> Path:
         repo_path = self.workspace_dir / f"{github_owner}-{github_repo}"
