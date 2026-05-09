@@ -17,6 +17,8 @@ class Message(Base):
     role: Mapped[str]
     content: Mapped[str] = mapped_column(Text)
     msg_type: Mapped[int | None]
+    media_url: Mapped[str | None] = mapped_column(Text)
+    media_type: Mapped[str | None]
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
     project: Mapped[Project] = relationship("Project", back_populates="messages")
