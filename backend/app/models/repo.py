@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Text, func
+from sqlalchemy import ForeignKey, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -23,6 +23,9 @@ class Repo(Base):
     deploy_server: Mapped[str | None]
     deploy_config: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    wechat_group_id: Mapped[str | None] = mapped_column(unique=True, index=True)
+    wechat_group_bound_at: Mapped[datetime | None]
+    wechat_group_bound_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
 
     projects: Mapped[list[Project]] = relationship("Project", back_populates="repo")
     dev_tasks: Mapped[list["DevTask"]] = relationship(
