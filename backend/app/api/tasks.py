@@ -146,6 +146,26 @@ async def claim_task(
     }
 
 
+@router.post("/dev-tasks/{dev_task_id}/started")
+async def mark_dev_task_started(
+    dev_task_id: int,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    task = await db.get(DevTask, dev_task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="dev task not found")
+    if task.status == "claimed":
+        task.status = "in_progress"
+        await db.commit()
+    else:
+        # idempotent: maybe already moved on by stale recovery or by a retry
+        logger.info(
+            "mark_started no-op dev_task_id=%s current_status=%s",
+            dev_task_id, task.status,
+        )
+    return {"dev_task_id": dev_task_id, "status": task.status}
+
+
 @router.post("/tasks/{project_id}/completed")
 async def complete_task(
     project_id: int,
