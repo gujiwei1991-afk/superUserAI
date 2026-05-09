@@ -38,8 +38,12 @@ class ClaudeCLIAdapter(BaseLLM):
         messages: Sequence[Mapping[str, Any]],
         **kwargs: Any,
     ) -> LLMResponse:
-        normalized = self._normalize_messages(messages)
-        base_system, conversation = self._split_system(normalized)
+        # Multimodal content: flatten image_url parts into "[image: <URL>]" tokens
+        # so the URL is preserved in plain text for the CLI prompt.
+        flattened = self._flatten_to_text(
+            self._normalize_messages_keep_multimodal(messages)
+        )
+        base_system, conversation = self._split_system(flattened)
         history, current_user = self._partition_last_user(conversation)
         composed_system = self._compose_system(base_system, history)
 
@@ -107,6 +111,28 @@ class ClaudeCLIAdapter(BaseLLM):
             if conversation[i]["role"] == "user":
                 return conversation[:i], conversation[i]["content"]
         return conversation, ""
+
+    @staticmethod
+    def _flatten_to_text(messages: list[dict[str, Any]]) -> list[dict[str, str]]:
+        """Turn multimodal content blocks into plain text with [image: URL] tokens."""
+        out: list[dict[str, str]] = []
+        for m in messages:
+            content = m.get("content", "")
+            if isinstance(content, list):
+                parts: list[str] = []
+                for p in content:
+                    if not isinstance(p, dict):
+                        continue
+                    if p.get("type") == "text" and isinstance(p.get("text"), str):
+                        parts.append(p["text"])
+                    elif p.get("type") == "image_url":
+                        url = (p.get("image_url") or {}).get("url")
+                        if isinstance(url, str) and url:
+                            parts.append(f"[image: {url}]")
+                out.append({"role": m["role"], "content": "\n".join(parts)})
+            else:
+                out.append({"role": m["role"], "content": str(content)})
+        return out
 
     @staticmethod
     def _compose_system(base: str, history: list[dict[str, str]]) -> str:
