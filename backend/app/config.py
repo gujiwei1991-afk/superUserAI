@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     intent_llm_timeout_seconds: float = 5.0
     group_bound_auto_activate: bool = True
     pmagent_ready_hint_after_turns: int = 3
+    image_bridge_url: str = ""              # http://1.94.215.136:9100
+    image_bridge_token: str = ""            # shared secret with vworkapi-bridge
+    image_bridge_timeout_seconds: float = 30.0
     claude_cli_executable: str = "claude"
     claude_cli_timeout_seconds: int = 180
 
