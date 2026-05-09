@@ -139,10 +139,12 @@ async def claim_task(
         "claimed": True,
         "dev_task_id": new_task.id,
         "project_id": project.id,
+        "repo_id": project.repo_id,
         "github_owner": repo.github_owner,
         "github_repo": repo.github_repo,
         "github_issue_number": project.github_issue_number,
         "title": project.title,
+        "local_path": repo.local_path,
     }
 
 
