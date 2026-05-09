@@ -23,6 +23,7 @@ class DevTask(Base):
     branch: Mapped[str | None]
     pr_number: Mapped[int | None]
     status: Mapped[str] = mapped_column(default="pending")
+    worker_id: Mapped[str | None]
     summary: Mapped[str | None] = mapped_column(Text)
     started_at: Mapped[datetime] = mapped_column(server_default=func.now())
     finished_at: Mapped[datetime | None]
