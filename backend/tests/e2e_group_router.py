@@ -75,9 +75,39 @@ async def test_bound_group_full_flow() -> None:
     print("bound group flow ok")
 
 
+async def test_bound_group_multi_turn_flow() -> None:
+    """Three-turn flow: open requirement -> elaborate -> 确认 (LLM mocked yes)."""
+    repo_id_env = os.environ.get("BIND_GROUP_TEST_REPO_ID")
+    group_id_env = os.environ.get("BIND_GROUP_TEST_GROUP_ID")
+    if not (repo_id_env and group_id_env):
+        print("set BIND_GROUP_TEST_REPO_ID + BIND_GROUP_TEST_GROUP_ID to run multi-turn test")
+        return
+
+    user_id = "router-test-user-mt-001"
+
+    class YesLLM:
+        async def chat(self, messages):
+            class _R:
+                content = "yes"
+
+            return _R()
+
+    async with AsyncSessionLocal() as db:
+        wechat = RecordingWeChat()
+        router = GroupMessageRouter(db, wechat, llm=YesLLM())
+
+        await router.try_handle(user_id, group_id_env, "我想做个简单的待办应用")
+        await router.try_handle(user_id, group_id_env, "支持新增、勾选完成、删除三件事就行")
+        # After two turns of context, user explicitly confirms.
+        await router.try_handle(user_id, group_id_env, "确认")
+
+    print("multi-turn flow ok (sent=%d)" % len(wechat.sent))
+
+
 def main() -> None:
     asyncio.run(test_unbound_group_returns_handled_false())
     asyncio.run(test_bound_group_full_flow())
+    asyncio.run(test_bound_group_multi_turn_flow())
     print("all e2e_group_router checks passed")
 
 
