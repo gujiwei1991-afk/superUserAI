@@ -21,6 +21,14 @@ class ProjectService:
     async def get_repo_by_name_or_id(self, repo_id: int) -> Repo | None:
         return await self.db.get(Repo, repo_id)
 
+    async def get_repo_by_wechat_group_id(self, wechat_group_id: str) -> Repo | None:
+        normalized = wechat_group_id.strip()
+        if not normalized:
+            return None
+        stmt = select(Repo).where(Repo.wechat_group_id == normalized)
+        result = await self.db.execute(stmt)
+        return result.scalar_one_or_none()
+
     async def create_project(
         self,
         repo_id: int,
