@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import socket
 from typing import Any
 
 import httpx
@@ -11,6 +13,10 @@ from app.config import get_settings
 from app.git_ops import GitOps
 
 logger = logging.getLogger(__name__)
+
+
+def _build_worker_id() -> str:
+    return f"{socket.gethostname()}-{os.getpid()}"
 
 
 class Worker:
@@ -34,7 +40,33 @@ class Worker:
         )
         self.git_ops = GitOps()
         self.coder = ClaudeCoder()
+        self.worker_id = _build_worker_id()
+        logger.info("worker started worker_id=%s", self.worker_id)
 
+    async def claim_one_task(self) -> dict[str, Any] | None:
+        response = await self.backend_client.post(
+            "/api/tasks/claim",
+            json={"worker_id": self.worker_id},
+        )
+        response.raise_for_status()
+        payload = response.json()
+        if not payload.get("claimed"):
+            return None
+        return payload
+
+    async def mark_started(self, dev_task_id: int) -> None:
+        try:
+            response = await self.backend_client.post(
+                f"/api/dev-tasks/{dev_task_id}/started"
+            )
+            response.raise_for_status()
+        except Exception:
+            logger.exception(
+                "mark_started failed dev_task_id=%s — continuing anyway",
+                dev_task_id,
+            )
+
+    # poll_tasks kept for backwards-compat / oneshot usage; not used by run().
     async def poll_tasks(self) -> list[dict[str, Any]]:
         response = await self.backend_client.get("/api/tasks/pending")
         response.raise_for_status()
@@ -42,6 +74,7 @@ class Worker:
         return payload if isinstance(payload, list) else []
 
     async def process_task(self, task: dict[str, Any]) -> None:
+        dev_task_id = task.get("dev_task_id")
         project_id = int(task["project_id"])
         github_owner = str(task["github_owner"])
         github_repo = str(task["github_repo"])
@@ -50,12 +83,12 @@ class Worker:
         branch_name = f"feat/issue-{issue_number}"
 
         logger.info(
-            "Processing project_id=%s repo=%s/%s issue=%s",
-            project_id,
-            github_owner,
-            github_repo,
-            issue_number,
+            "Processing dev_task=%s project=%s repo=%s/%s issue=%s",
+            dev_task_id, project_id, github_owner, github_repo, issue_number,
         )
+
+        if isinstance(dev_task_id, int):
+            await self.mark_started(dev_task_id)
 
         repo_path = await asyncio.to_thread(self.git_ops.clone_or_pull, github_owner, github_repo)
         try:
@@ -121,19 +154,17 @@ class Worker:
         try:
             while True:
                 try:
-                    tasks = await self.poll_tasks()
-                    if tasks:
-                        logger.info("Fetched %s pending task(s)", len(tasks))
-                    for task in tasks:
+                    claim = await self.claim_one_task()
+                    if claim is not None:
                         try:
-                            await self.process_task(task)
+                            await self.process_task(claim)
                         except Exception as exc:
-                            logger.exception("Failed to process task: %s", task)
-                            project_id = task.get("project_id")
+                            logger.exception("Failed to process task: %s", claim)
+                            project_id = claim.get("project_id")
                             if isinstance(project_id, int):
                                 await self._notify_backend_failed(project_id, str(exc))
                 except Exception:
-                    logger.exception("Failed to poll pending tasks")
+                    logger.exception("Failed to claim task")
 
                 await asyncio.sleep(interval)
         finally:
