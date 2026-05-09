@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents import PMAgent
+from app.agents.pm_agent import has_ready_marker, strip_ready_marker
 from app.gateway.command_parser import Command
 from app.gateway.wechat_client import WeChatClient
 from app.models import Feedback, Project, Repo, Session as UserSession, User, UserRepo
@@ -81,6 +82,13 @@ class MessageHandler:
             logger.exception("Failed to handle message for wechat_user_id=%s", wechat_user_id)
             await self.db.rollback()
 
+        # Strip [READY_TO_CONFIRM] marker (PMAgent in-band signal) before send,
+        # appending the standard confirm hint.
+        if reply and has_ready_marker(reply):
+            cleaned = strip_ready_marker(reply)
+            hint = self.pm_agent.build_confirm_hint()
+            reply = (cleaned + hint) if cleaned else hint.lstrip()
+
         if reply:
             try:
                 if group_id:
@@ -124,6 +132,22 @@ class MessageHandler:
                 "可发送 #我的仓库 查看你当前能提需求的仓库。"
             )
 
+        return await self._handle_new_project_internal(
+            user, session, wechat_user_id, repo, desc, group_id=group_id
+        )
+
+    async def _handle_new_project_internal(
+        self,
+        user: User,
+        session: UserSession,
+        wechat_user_id: str,
+        repo: Repo,
+        desc: str,
+        group_id: str | None = None,
+    ) -> str:
+        """Variant of _handle_new_project where (repo, desc) are already resolved
+        — used by GroupMessageRouter when the bound group implies the repo.
+        """
         project = await self.project_service.create_project(
             repo_id=repo.id,
             title=self._build_project_title(desc),
@@ -143,7 +167,7 @@ class MessageHandler:
         return (
             f"已在仓库「{repo.name}」下创建需求会话：[{project.id}] {project.title}\n\n"
             f"{ai_reply}\n\n"
-            "需求沟通完成后发送 #确认 生成 PRD。"
+            "需求沟通完成后回复『确认』即可生成方案。"
         )
 
     async def _handle_chat(
@@ -153,10 +177,18 @@ class MessageHandler:
         wechat_user_id: str,
         command: Command,
     ) -> str:
-        del user
+        content = str(command.args.get("content", "")).strip()
+        return await self._handle_chat_internal(user, session, wechat_user_id, content)
 
-        user_message = str(command.args.get("content", "")).strip()
-        if not user_message:
+    async def _handle_chat_internal(
+        self,
+        user: User,
+        session: UserSession,
+        wechat_user_id: str,
+        content: str,
+    ) -> str:
+        del user
+        if not content.strip():
             return "请输入要补充的需求内容。"
 
         project, repo, error_reply = await self._get_active_project_context(session)
@@ -164,7 +196,7 @@ class MessageHandler:
             return error_reply or "当前没有可继续沟通的项目，请先发送 #新需求。"
 
         if project.status == ProjectStatus.REVIEWING.value or session.state == SessionState.CONFIRMING.value:
-            return "当前 PRD 已生成，如需调整请发送 #修改 <内容>。"
+            return "当前方案已生成，如需调整请直接说『改一下…』，或回复『确认』提交审核。"
 
         if session.state == SessionState.SCORING.value:
             return "当前项目正在等待评分，请发送 #评分 <1-10> <反馈>。"
@@ -173,10 +205,10 @@ class MessageHandler:
             return f"当前项目状态为「{self._status_label(project.status)}」，不在需求沟通阶段，请发送 #状态 查看进度。"
 
         history = await self.project_service.get_messages(project.id)
-        await self.project_service.add_message(project.id, wechat_user_id, "user", user_message)
+        await self.project_service.add_message(project.id, wechat_user_id, "user", content)
         await self.session_manager.update_session_state(session, SessionState.CHATTING, project.id)
 
-        ai_reply = await self.pm_agent.chat(project, repo, history, user_message)
+        ai_reply = await self.pm_agent.chat(project, repo, history, content)
         await self.project_service.add_message(project.id, wechat_user_id, "assistant", ai_reply)
         return ai_reply
 
@@ -235,24 +267,32 @@ class MessageHandler:
         wechat_user_id: str,
         command: Command,
     ) -> str:
-        del user
-
         feedback = str(command.args.get("content", "")).strip()
-        if not feedback:
-            return "请在 #修改 后补充需要调整的内容。"
+        return await self._handle_modify_internal(user, session, wechat_user_id, feedback)
+
+    async def _handle_modify_internal(
+        self,
+        user: User,
+        session: UserSession,
+        wechat_user_id: str,
+        feedback: str,
+    ) -> str:
+        del user
+        if not feedback.strip():
+            return "请告诉我具体要怎么改。"
 
         project, repo, error_reply = await self._get_active_project_context(session)
         if error_reply is not None or project is None or repo is None:
             return error_reply or "当前没有可修改的项目，请先发送 #新需求。"
 
         if not project.prd_content:
-            return "当前项目还没有生成 PRD，请先继续沟通并发送 #确认。"
+            return "当前项目还没有生成方案，请先继续沟通后回复『确认』。"
 
         if project.status == ProjectStatus.COMPLETED.value:
-            return "当前项目已经完成，不能再修改 PRD。"
+            return "当前项目已经完成，不能再修改方案。"
 
         if project.status not in {ProjectStatus.REVIEWING.value, ProjectStatus.REJECTED.value}:
-            return f"当前项目状态为「{self._status_label(project.status)}」，暂时不能修改 PRD。"
+            return f"当前项目状态为「{self._status_label(project.status)}」，暂时不能修改方案。"
 
         history = await self.project_service.get_messages(project.id)
         await self.project_service.add_message(project.id, wechat_user_id, "user", feedback)
@@ -275,11 +315,11 @@ class MessageHandler:
             project.id,
             wechat_user_id,
             "assistant",
-            "PRD 已根据最新反馈完成更新。",
+            "方案已根据最新反馈完成更新。",
         )
         await self._notify_admins_for_review(project)
 
-        return f"已根据你的反馈更新 PRD：\n\n{updated_prd}"
+        return f"已根据你的反馈更新方案：\n\n{updated_prd}"
 
     async def _handle_score(
         self,
@@ -321,6 +361,30 @@ class MessageHandler:
         await self.db.flush()
 
         return f"已记录评分：{score} 分。\n反馈：{comment}\n当前项目已标记为完成。"
+
+    async def _handle_status_internal(
+        self,
+        user: User,
+        session: UserSession,
+    ) -> str:
+        return await self._handle_status(user, session)
+
+    async def _handle_review_internal(
+        self,
+        user: User,
+        project_id: int,
+        decision: str,
+        reason: str,
+    ) -> str:
+        cmd = Command(
+            type="review",
+            args={
+                "project_id": project_id,
+                "decision": decision,
+                "reason": reason,
+            },
+        )
+        return await self._handle_review_command(user, cmd)
 
     async def _handle_status(self, user: User, session: UserSession) -> str:
         del user
