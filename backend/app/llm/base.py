@@ -64,6 +64,56 @@ class BaseLLM(ABC):
             )
         return normalized
 
+    @classmethod
+    def _normalize_messages_keep_multimodal(
+        cls,
+        messages: Sequence[Mapping[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Like _normalize_messages but preserves list[dict] content (for vision)."""
+        normalized: list[dict[str, Any]] = []
+        for message in messages:
+            role = str(message.get("role", "user"))
+            content = message.get("content", "")
+            if isinstance(content, list):
+                clean_parts: list[dict[str, Any]] = []
+                for part in content:
+                    if isinstance(part, str):
+                        clean_parts.append({"type": "text", "text": part})
+                        continue
+                    if not isinstance(part, dict):
+                        continue
+                    ptype = part.get("type")
+                    if ptype == "text" and isinstance(part.get("text"), str):
+                        clean_parts.append({"type": "text", "text": part["text"]})
+                    elif ptype == "image_url":
+                        url_obj = part.get("image_url") or {}
+                        url = url_obj.get("url") if isinstance(url_obj, dict) else None
+                        if isinstance(url, str) and url:
+                            clean_parts.append({
+                                "type": "image_url",
+                                "image_url": {"url": url},
+                            })
+                if clean_parts:
+                    normalized.append({"role": role, "content": clean_parts})
+                else:
+                    normalized.append({"role": role, "content": ""})
+            else:
+                normalized.append({
+                    "role": role,
+                    "content": cls._coerce_content(content),
+                })
+        return normalized
+
+    @staticmethod
+    def _has_image_content(message: Mapping[str, Any]) -> bool:
+        content = message.get("content")
+        if not isinstance(content, list):
+            return False
+        return any(
+            isinstance(p, dict) and p.get("type") == "image_url"
+            for p in content
+        )
+
     @abstractmethod
     async def chat(
         self,
