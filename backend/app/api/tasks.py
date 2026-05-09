@@ -179,17 +179,40 @@ async def complete_task(
     project.github_pr_number = payload.pr_number
     project.status = ProjectStatus.DEVELOPING.value
 
-    db.add(
-        DevTask(
-            project_id=project.id,
-            repo_id=project.repo_id,
-            branch=payload.branch,
-            pr_number=payload.pr_number,
-            status="pr_open",
-            summary=payload.summary,
-            finished_at=datetime.now(timezone.utc),
+    # Find the active dev_task and update it instead of inserting a new row.
+    stmt = (
+        select(DevTask)
+        .where(
+            DevTask.project_id == project_id,
+            DevTask.status.in_(("claimed", "in_progress")),
         )
+        .order_by(DevTask.id.desc())
+        .limit(1)
     )
+    active = (await db.execute(stmt)).scalar_one_or_none()
+    if active is not None:
+        active.status = "pr_open"
+        active.pr_number = payload.pr_number
+        active.branch = payload.branch
+        active.summary = payload.summary
+        active.finished_at = datetime.utcnow()
+    else:
+        logger.warning(
+            "complete_task: no active dev_task for project=%s; "
+            "inserting fallback row to preserve audit trail",
+            project_id,
+        )
+        db.add(
+            DevTask(
+                project_id=project.id,
+                repo_id=project.repo_id,
+                branch=payload.branch,
+                pr_number=payload.pr_number,
+                status="pr_open",
+                summary=payload.summary,
+                finished_at=datetime.utcnow(),
+            )
+        )
 
     await db.commit()
     await db.refresh(project)
@@ -213,17 +236,36 @@ async def fail_task(
 
     project.status = ProjectStatus.REJECTED.value
 
-    db.add(
-        DevTask(
-            project_id=project.id,
-            repo_id=project.repo_id,
-            branch=None,
-            pr_number=None,
-            status="failed",
-            summary=payload.reason[:4000],
-            finished_at=datetime.now(timezone.utc),
+    stmt = (
+        select(DevTask)
+        .where(
+            DevTask.project_id == project_id,
+            DevTask.status.in_(("claimed", "in_progress")),
         )
+        .order_by(DevTask.id.desc())
+        .limit(1)
     )
+    active = (await db.execute(stmt)).scalar_one_or_none()
+    if active is not None:
+        active.status = "failed"
+        active.summary = payload.reason[:4000]
+        active.finished_at = datetime.utcnow()
+    else:
+        logger.warning(
+            "fail_task: no active dev_task for project=%s; inserting fallback row",
+            project_id,
+        )
+        db.add(
+            DevTask(
+                project_id=project.id,
+                repo_id=project.repo_id,
+                branch=None,
+                pr_number=None,
+                status="failed",
+                summary=payload.reason[:4000],
+                finished_at=datetime.utcnow(),
+            )
+        )
 
     await db.commit()
     await db.refresh(project)
