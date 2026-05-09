@@ -34,6 +34,13 @@ from app.services.project_review import (
     notify_creator_rejected,
 )
 from app.services.project_service import ProjectService
+from app.services.repo_binding_service import (
+    BindingConflictError,
+    RepoBindingService,
+    RepoNotFoundError,
+    send_unbind_notice,
+    send_welcome,
+)
 from shared.constants import ProjectStatus
 
 BASE_DIR = Path(__file__).resolve().parents[2]
@@ -1263,6 +1270,95 @@ async def set_repo_webhook(
     return _redirect_to_projects(
         request,
         message="Webhook 配置成功。",
+        message_type="success",
+    )
+
+
+@router.post("/projects/{repo_id}/bind-group", name="admin_bind_repo_group")
+async def bind_repo_group(
+    request: Request,
+    repo_id: int,
+    current_admin: dict[str, Any] = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    form = await _read_form_data(request)
+    group_id = (form.get("group_id") or "").strip()
+    if not group_id:
+        return _redirect_to_projects(
+            request,
+            message="群 ID 不能为空。",
+            message_type="warning",
+        )
+
+    admin_user_id_raw = current_admin.get("user_id")
+    if not isinstance(admin_user_id_raw, int):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="invalid admin token (missing user_id claim)",
+        )
+
+    svc = RepoBindingService(db)
+    try:
+        repo = await svc.bind(
+            repo_id=repo_id,
+            wechat_group_id=group_id,
+            bound_by=admin_user_id_raw,
+        )
+    except BindingConflictError as exc:
+        return _redirect_to_projects(
+            request,
+            message=f"绑定失败：{exc}",
+            message_type="warning",
+        )
+    except RepoNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
+
+    await db.commit()
+    await send_welcome(wechat, group_id, repo.name)
+    return _redirect_to_projects(
+        request,
+        message=f"已将仓库「{repo.name}」绑定到群 {group_id}。",
+        message_type="success",
+    )
+
+
+@router.post("/projects/{repo_id}/unbind-group", name="admin_unbind_repo_group")
+async def unbind_repo_group(
+    request: Request,
+    repo_id: int,
+    current_admin: dict[str, Any] = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    del current_admin
+    repo = await db.get(Repo, repo_id)
+    if repo is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Repo not found"
+        )
+    old_group = repo.wechat_group_id
+    repo_name = repo.name
+
+    svc = RepoBindingService(db)
+    try:
+        await svc.unbind(repo_id=repo_id)
+    except RepoNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
+
+    await db.commit()
+
+    if old_group:
+        await send_unbind_notice(wechat, old_group, repo_name)
+        message = f"已解除「{repo_name}」与群 {old_group} 的绑定。"
+    else:
+        message = f"「{repo_name}」当前未绑定任何群，无需解绑。"
+
+    return _redirect_to_projects(
+        request,
+        message=message,
         message_type="success",
     )
 
