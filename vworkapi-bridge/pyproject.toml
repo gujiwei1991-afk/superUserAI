@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=69.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vworkapi-bridge"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.110,<1.0",
+    "uvicorn[standard]>=0.29,<1.0",
+    "httpx>=0.27,<1.0",
+    "qiniu>=7.13,<8.0",
+    "pydantic-settings>=2.0,<3.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*"]
