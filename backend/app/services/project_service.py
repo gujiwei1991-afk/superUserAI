@@ -108,6 +108,8 @@ class ProjectService:
         role: str,
         content: str,
         msg_type: int | None = None,
+        media_url: str | None = None,
+        media_type: str | None = None,
     ) -> Message:
         message = Message(
             project_id=project_id,
@@ -115,6 +117,8 @@ class ProjectService:
             role=role,
             content=content,
             msg_type=msg_type,
+            media_url=media_url,
+            media_type=media_type,
         )
         self.db.add(message)
         await self.db.flush()
