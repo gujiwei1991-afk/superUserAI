@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     jwt_secret: str = "CHANGE_ME_USE_OPENSSL_RAND_HEX_32"
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 1440
+    intent_llm_model: str = ""  # empty = use llm_model
+    intent_llm_timeout_seconds: float = 5.0
+    group_bound_auto_activate: bool = True
+    pmagent_ready_hint_after_turns: int = 3
     claude_cli_executable: str = "claude"
     claude_cli_timeout_seconds: int = 180
 
