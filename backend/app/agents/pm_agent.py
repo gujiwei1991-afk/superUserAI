@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import Any
 
 from app.agents.prompts.pm_prompts import PRD_GENERATION_PROMPT, SYSTEM_PROMPT
 from app.llm import BaseLLM, create_llm
@@ -85,8 +86,8 @@ class PMAgent:
         project: Project,
         repo: Repo,
         history: Sequence[Message],
-    ) -> list[dict[str, str]]:
-        messages: list[dict[str, str]] = [
+    ) -> list[dict[str, Any]]:
+        messages: list[dict[str, Any]] = [
             {
                 "role": "system",
                 "content": SYSTEM_PROMPT.format(
@@ -96,12 +97,21 @@ class PMAgent:
             }
         ]
         for item in history:
-            messages.append(
-                {
-                    "role": self._normalize_role(item.role),
-                    "content": item.content,
-                }
-            )
+            role = self._normalize_role(item.role)
+            if getattr(item, "media_url", None):
+                text = (item.content or "").strip() or "[图片]"
+                messages.append({
+                    "role": role,
+                    "content": [
+                        {"type": "text", "text": text},
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": item.media_url},
+                        },
+                    ],
+                })
+            else:
+                messages.append({"role": role, "content": item.content})
         return messages
 
     @staticmethod
