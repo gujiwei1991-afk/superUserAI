@@ -38,7 +38,7 @@ class OpenAIAdapter(BaseLLM):
     ) -> LLMResponse:
         payload = {
             "model": self.model,
-            "messages": self._normalize_messages(messages),
+            "messages": self._normalize_messages_keep_multimodal(messages),
             "stream": False,
             **kwargs,
         }
@@ -63,7 +63,7 @@ class OpenAIAdapter(BaseLLM):
     ) -> AsyncIterator[str]:
         payload = {
             "model": self.model,
-            "messages": self._normalize_messages(messages),
+            "messages": self._normalize_messages_keep_multimodal(messages),
             "stream": True,
             **kwargs,
         }
