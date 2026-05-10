@@ -56,6 +56,7 @@ STATUS_LABELS = {
     ProjectStatus.APPROVED.value: "已批准",
     ProjectStatus.DEVELOPING.value: "开发中",
     ProjectStatus.DEPLOYED.value: "已部署",
+    ProjectStatus.STAGED.value: "测试环境就绪",
     ProjectStatus.ACCEPTANCE.value: "待验收",
     ProjectStatus.COMPLETED.value: "已完成",
     ProjectStatus.REJECTED.value: "已驳回",
@@ -67,6 +68,7 @@ STATUS_BADGE_CLASSES = {
     ProjectStatus.APPROVED.value: "bg-blue-100 text-blue-700 ring-blue-200",
     ProjectStatus.DEVELOPING.value: "bg-violet-100 text-violet-700 ring-violet-200",
     ProjectStatus.DEPLOYED.value: "bg-emerald-100 text-emerald-700 ring-emerald-200",
+    ProjectStatus.STAGED.value: "bg-teal-100 text-teal-700 ring-teal-200",
     ProjectStatus.ACCEPTANCE.value: "bg-cyan-100 text-cyan-700 ring-cyan-200",
     ProjectStatus.COMPLETED.value: "bg-emerald-100 text-emerald-700 ring-emerald-200",
     ProjectStatus.REJECTED.value: "bg-rose-100 text-rose-700 ring-rose-200",
@@ -433,6 +435,7 @@ async def _render_projects_page(
                 [
                     ProjectStatus.DEVELOPING.value,
                     ProjectStatus.DEPLOYED.value,
+                    ProjectStatus.STAGED.value,
                     ProjectStatus.ACCEPTANCE.value,
                 ]
             )
@@ -684,6 +687,7 @@ async def dashboard(
         + by_status.get(ProjectStatus.DEVELOPING.value, 0)
     )
     deployed = by_status.get(ProjectStatus.DEPLOYED.value, 0)
+    staged = by_status.get(ProjectStatus.STAGED.value, 0)
     acceptance = by_status.get(ProjectStatus.ACCEPTANCE.value, 0)
     completed = by_status.get(ProjectStatus.COMPLETED.value, 0)
     rejected = by_status.get(ProjectStatus.REJECTED.value, 0)
@@ -694,7 +698,7 @@ async def dashboard(
         "drafting": drafting,
         "reviewing": reviewing,
         "in_progress": in_progress,
-        "deployed_pending_review": deployed + acceptance,
+        "deployed_pending_review": deployed + staged + acceptance,
         "completed": completed,
         "rejected": rejected,
     }
@@ -856,6 +860,7 @@ async def projects(
                 [
                     ProjectStatus.DEVELOPING.value,
                     ProjectStatus.DEPLOYED.value,
+                    ProjectStatus.STAGED.value,
                     ProjectStatus.ACCEPTANCE.value,
                 ]
             )

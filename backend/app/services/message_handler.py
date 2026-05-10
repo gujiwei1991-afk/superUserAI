@@ -639,6 +639,7 @@ class MessageHandler:
             ProjectStatus.APPROVED.value: "已批准",
             ProjectStatus.DEVELOPING.value: "开发中",
             ProjectStatus.DEPLOYED.value: "已部署",
+            ProjectStatus.STAGED.value: "测试环境就绪",
             ProjectStatus.ACCEPTANCE.value: "待验收",
             ProjectStatus.COMPLETED.value: "已完成",
             ProjectStatus.REJECTED.value: "已驳回",
