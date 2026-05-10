@@ -58,7 +58,7 @@ def test_parse_target_empty_raises() -> None:
 
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 
 def _make_service():
@@ -138,6 +138,51 @@ def test_deploy_pr_skips_when_ssh_target_missing() -> None:
     print("deploy_pr skips when ssh_target missing ok")
 
 
+def _fake_subprocess(returncode: int, stdout: bytes = b"ok\n"):
+    """Returns an awaitable that resolves to a fake process behaving like asyncio's."""
+    proc = MagicMock()
+    proc.returncode = returncode
+    proc.communicate = AsyncMock(return_value=(stdout, None))
+    proc.kill = MagicMock()
+    proc.wait = AsyncMock()
+    return proc
+
+
+def test_deploy_pr_success_updates_state_and_notifies() -> None:
+    async def run():
+        svc = _make_service()
+        repo = _make_repo()
+        dev_task = _make_dev_task()
+        project = _make_project()
+        db = _make_db()
+
+        fake_proc = _fake_subprocess(returncode=0, stdout=b"deploy succeeded\nUp 0 sec\n")
+
+        with patch("app.services.staging_deploy_service.asyncio.create_subprocess_exec",
+                   AsyncMock(return_value=fake_proc)) as mock_exec, \
+             patch("app.services.staging_deploy_service.notify_creator_targeted",
+                   AsyncMock()) as mock_notify:
+            await svc.deploy_pr(db, repo, project, dev_task, pr_number=3, head_sha="abcdef")
+
+        assert dev_task.staging_deploy_status == "success", dev_task.staging_deploy_status
+        assert dev_task.staging_deployed_at is not None
+        assert "deploy succeeded" in (dev_task.staging_deploy_log or "")
+        assert project.status == "staged", project.status
+        # 通知调了一次
+        assert mock_notify.await_count == 1
+        # 通知 body 含 staging_url + PR 号
+        body = mock_notify.await_args.args[3]  # (db, wechat, project, body)
+        assert "https://staging.example.com" in body
+        assert "PR #3" in body
+        # SSH 命令至少调过
+        assert mock_exec.await_count == 1
+        ssh_args = mock_exec.await_args.args
+        assert "ssh" in ssh_args
+        assert "deploy@server.com" in ssh_args
+    asyncio.run(run())
+    print("deploy_pr success path ok")
+
+
 def main() -> None:
     test_parse_target_user_at_host()
     test_parse_target_user_at_host_with_port()
@@ -147,6 +192,7 @@ def main() -> None:
     test_parse_target_empty_raises()
     test_deploy_pr_skips_when_staging_url_missing()
     test_deploy_pr_skips_when_ssh_target_missing()
+    test_deploy_pr_success_updates_state_and_notifies()
     print("\nall test_staging_deploy_service checks passed")
 
 

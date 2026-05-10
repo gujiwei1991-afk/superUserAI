@@ -9,7 +9,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import shlex
+from datetime import datetime
 from typing import TYPE_CHECKING
+
+from shared.constants import ProjectStatus
+from app.services.project_review import notify_creator_targeted
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -70,14 +75,16 @@ _STAGING_REQUIRED_FIELDS = (
 class StagingDeployService:
     """Drives PR-triggered staging deploys via SSH + docker compose.
 
-    On each invocation of `deploy_pr`, validates that the repo has all
-    required staging configuration; if so, will SSH to the configured
-    target and run `docker compose up -d --build` (full implementation
-    in subsequent tasks). Skipped silently when staging config is incomplete.
+    On `deploy_pr`, validates that the repo has the required staging fields,
+    parses the SSH target, then SSH'es to it and runs the deploy script
+    (git fetch + checkout + docker compose up -d --build). Updates the
+    dev_task state to deploying → success/failed and notifies the project
+    creator on completion. Skipped silently when staging config is incomplete.
 
     Per-repo asyncio.Lock serializes concurrent deploys for the same repo;
     `_pending` coalesces multiple in-flight requests so we deploy the
-    latest head_sha rather than every intermediate one.
+    latest head_sha rather than every intermediate one. (Lock + pending
+    behavior is fully wired in Task 9; the dicts are pre-allocated here.)
     """
 
     def __init__(
@@ -122,5 +129,123 @@ class StagingDeployService:
             )
             await db.commit()
             return
-        # 后续步骤会在 Task 7+ 实现
-        raise NotImplementedError("happy path not implemented yet")
+
+        try:
+            user, host, port = _parse_ssh_target(
+                repo.staging_ssh_target,
+                default_user=self.ssh_user_default,
+            )
+        except ValueError as e:
+            logger.warning("staging deploy bad ssh target repo_id=%s: %s", repo.id, e)
+            dev_task.staging_deploy_status = "failed"
+            dev_task.staging_deploy_log = f"ssh target parse error: {e}"
+            await db.commit()
+            await self._notify_failure(db, project, dev_task, pr_number)
+            return
+
+        # 标记 deploying，同步 commit
+        dev_task.staging_deploy_status = "deploying"
+        dev_task.staging_deploy_log = None
+        await db.commit()
+
+        ssh_args = [
+            "ssh",
+            "-i", self.ssh_key_path,
+            "-o", "StrictHostKeyChecking=accept-new",
+            "-o", "BatchMode=yes",
+            "-o", "ConnectTimeout=15",
+        ]
+        if port is not None:
+            ssh_args += ["-p", str(port)]
+        ssh_args += [f"{user}@{host}", "bash", "-s"]
+
+        # 远端脚本（注意 shlex.quote 防注入）
+        remote_script = (
+            "set -euo pipefail\n"
+            f"cd {shlex.quote(repo.staging_deploy_path)}\n"
+            f"git fetch origin pull/{int(pr_number)}/head:pr-{int(pr_number)}\n"
+            f"git checkout -f pr-{int(pr_number)}\n"
+            f"git reset --hard {shlex.quote(head_sha)}\n"
+            f"docker compose -f {shlex.quote(repo.staging_compose_file)} up -d --build\n"
+            f"docker compose -f {shlex.quote(repo.staging_compose_file)} ps\n"
+        )
+
+        proc = await asyncio.create_subprocess_exec(
+            *ssh_args,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+
+        try:
+            stdout, _ = await asyncio.wait_for(
+                proc.communicate(remote_script.encode()),
+                timeout=self.deploy_timeout_sec,
+            )
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.wait()
+            dev_task.staging_deploy_status = "failed"
+            dev_task.staging_deploy_log = f"deploy timeout after {self.deploy_timeout_sec}s"
+            await db.commit()
+            await self._notify_failure(db, project, dev_task, pr_number)
+            return
+
+        log_text = (stdout or b"").decode("utf-8", errors="replace")
+        # 截取最后 N 行
+        lines = log_text.splitlines()
+        if len(lines) > self.log_tail_lines:
+            lines = lines[-self.log_tail_lines:]
+        dev_task.staging_deploy_log = "\n".join(lines)
+
+        if proc.returncode != 0:
+            dev_task.staging_deploy_status = "failed"
+            await db.commit()
+            await self._notify_failure(db, project, dev_task, pr_number)
+            return
+
+        # 成功
+        dev_task.staging_deploy_status = "success"
+        dev_task.staging_deployed_at = datetime.utcnow()
+        project.status = ProjectStatus.STAGED.value
+        await db.commit()
+        await self._notify_success(db, project, repo, pr_number)
+
+    async def _notify_success(
+        self,
+        db: "AsyncSession",
+        project: "Project",
+        repo: "Repo",
+        pr_number: int,
+    ) -> None:
+        body = (
+            f"🎉 需求《{project.title}》已部署到测试环境\n\n"
+            f"PR #{pr_number}\n"
+            f"👉 {repo.staging_url}\n\n"
+            "满意请回复  #评分 <1-10> <意见>\n"
+            "需要修改请回复  #修改 <说明>"
+        )
+        try:
+            await notify_creator_targeted(db, self.wechat_client, project, body)
+        except Exception:
+            logger.exception("staging notify success failed project=%s", project.id)
+
+    async def _notify_failure(
+        self,
+        db: "AsyncSession",
+        project: "Project",
+        dev_task: "DevTask",
+        pr_number: int,
+    ) -> None:
+        log = (dev_task.staging_deploy_log or "").strip()
+        # 取最后 200 字符当摘要
+        summary = log[-200:] if log else "(no log)"
+        body = (
+            f"❌ PR #{pr_number} 部署到测试环境失败\n\n"
+            f"错误摘要：\n{summary}\n\n"
+            f"详情见管理后台 project_id={project.id}"
+        )
+        try:
+            await notify_creator_targeted(db, self.wechat_client, project, body)
+        except Exception:
+            logger.exception("staging notify failure failed project=%s", project.id)
