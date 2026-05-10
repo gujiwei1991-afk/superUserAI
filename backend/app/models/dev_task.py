@@ -27,6 +27,9 @@ class DevTask(Base):
     summary: Mapped[str | None] = mapped_column(Text)
     started_at: Mapped[datetime] = mapped_column(server_default=func.now())
     finished_at: Mapped[datetime | None]
+    staging_deploy_status: Mapped[str] = mapped_column(default="pending")
+    staging_deployed_at: Mapped[datetime | None]
+    staging_deploy_log: Mapped[str | None] = mapped_column(Text)
 
     project: Mapped["Project"] = relationship("Project", back_populates="dev_tasks")
     repo: Mapped["Repo"] = relationship("Repo", back_populates="dev_tasks")

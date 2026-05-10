@@ -26,6 +26,10 @@ class Repo(Base):
     wechat_group_id: Mapped[str | None] = mapped_column(unique=True, index=True)
     wechat_group_bound_at: Mapped[datetime | None]
     wechat_group_bound_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    staging_url: Mapped[str | None] = mapped_column(Text)
+    staging_ssh_target: Mapped[str | None]
+    staging_deploy_path: Mapped[str | None] = mapped_column(Text)
+    staging_compose_file: Mapped[str] = mapped_column(default="docker-compose.staging.yml")
 
     projects: Mapped[list[Project]] = relationship("Project", back_populates="repo")
     dev_tasks: Mapped[list["DevTask"]] = relationship(
