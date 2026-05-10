@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     image_bridge_timeout_seconds: float = 30.0
     claude_cli_executable: str = "claude"
     claude_cli_timeout_seconds: int = 180
+    staging_ssh_key_path: str = ""
+    staging_ssh_user_default: str = "deploy"
+    staging_deploy_timeout_sec: int = 600
+    staging_log_tail_lines: int = 200
 
 
 @lru_cache
