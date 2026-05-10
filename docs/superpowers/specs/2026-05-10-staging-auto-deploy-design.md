@@ -314,22 +314,20 @@ backend 进程在部署中途崩溃 / 重启 → DB 里某些 `dev_task.staging_
 
 ## 6. 企业微信通知模板
 
-### 6.1 部署成功 — 卡片链接
+### 6.1 部署成功 — 文本消息（含 URL）
 
-调 `wechat_client.send_card_link(user_id, title, desc, url, cover_url)`：
+**实现选择：** 不用 `wechat_client.send_card_link`（它只支持私聊 user_id，不支持群 chat_room_id）。改用 `notify_creator_targeted(db, wechat, project, body)`，由它自动路由到群（@creator + 文本）或私聊。
 
-| 字段 | 取值 |
-|---|---|
-| `user_id` | `project.creator.wechat_user_id`（如果项目绑了群，发到群） |
-| `title` | `f"{project.title}"` （30 字内截断） |
-| `desc` | `f"PR #{pr_number} 已部署到测试环境，点开看效果"` |
-| `url` | `repo.staging_url` |
-| `cover_url` | 留空 / 用一个固定 placeholder |
+`body` 模板：
 
-接着发一条文本：
 ```
-满意请回复 #评分 1-10 [意见]
-需要修改请回复 #修改 [说明]
+🎉 需求《{project.title}》已部署到测试环境
+
+PR #{pr_number}
+👉 {staging_url}
+
+满意请回复  #评分 <1-10> <意见>
+需要修改请回复  #修改 <说明>
 ```
 
 ### 6.2 部署失败 — 文本消息
@@ -344,7 +342,7 @@ PR #{pr_number} 部署到测试环境失败 ❌
 
 ### 6.3 通知接收人路由
 
-复用现有 `project_service` 里"项目通知发给谁"的判定逻辑（绑群 → 群；不绑群 → creator 私聊）。
+复用 `app/services/project_review.py::notify_creator_targeted`：绑群 → 群里发文本并 @ creator；不绑群 → 私聊 creator。失败/成功通知均走这一个入口。
 
 ---
 
