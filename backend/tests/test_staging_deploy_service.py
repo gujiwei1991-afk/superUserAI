@@ -267,6 +267,104 @@ def test_deploy_pr_bad_ssh_target_marks_failed() -> None:
     print("deploy_pr bad ssh target ok")
 
 
+def test_deploy_pr_same_repo_concurrent_serializes_and_coalesces() -> None:
+    """同 repo 并发 N 次 deploy_pr，SSH 实际只调 2 次（首次 + 合并最新 sha）。"""
+    async def run():
+        svc = _make_service()
+        repo = _make_repo()
+        project = _make_project()
+        db = _make_db()
+
+        # 给两个不同的 dev_task（模拟两次 PR push）
+        dt_a = _make_dev_task(); dt_a.id = 100
+        dt_b = _make_dev_task(); dt_b.id = 101
+
+        # SSH 调用计数 + 慢一点让并发能错开
+        call_log: list[tuple[int, str]] = []
+
+        async def fake_communicate(input_bytes):
+            await asyncio.sleep(0.05)
+            return (b"ok\n", None)
+
+        def fake_create(*args, **kwargs):
+            call_log.append(("called", str(len(call_log))))
+            proc = MagicMock()
+            proc.returncode = 0
+            proc.communicate = fake_communicate
+            proc.kill = MagicMock()
+            proc.wait = AsyncMock()
+            return proc
+
+        async def fake_create_async(*args, **kwargs):
+            return fake_create(*args, **kwargs)
+
+        with patch("app.services.staging_deploy_service.asyncio.create_subprocess_exec",
+                   side_effect=fake_create_async), \
+             patch("app.services.staging_deploy_service.notify_creator_targeted",
+                   AsyncMock()):
+            # 三个 push 同一 repo 几乎同时来
+            await asyncio.gather(
+                svc.deploy_pr(db, repo, project, dt_a, pr_number=3, head_sha="sha-a"),
+                svc.deploy_pr(db, repo, project, dt_b, pr_number=3, head_sha="sha-b"),
+                svc.deploy_pr(db, repo, project, dt_b, pr_number=3, head_sha="sha-c"),
+            )
+
+        # 期望：第一次部 sha-a；后两次合并成一次部 sha-c。所以总共 2 次 SSH
+        assert len(call_log) == 2, f"expected 2 ssh calls, got {len(call_log)}"
+        # Coalesced replay should update dt_b (not dt_a, which is for the first deploy)
+        assert dt_a.staging_deploy_status == "success", \
+            f"dt_a should reflect first deploy: {dt_a.staging_deploy_status}"
+        assert dt_b.staging_deploy_status == "success", \
+            f"dt_b should reflect coalesced (latest) replay: {dt_b.staging_deploy_status}"
+    asyncio.run(run())
+    print("deploy_pr same-repo serialize + coalesce ok")
+
+
+def test_deploy_pr_different_repos_parallel() -> None:
+    """不同 repo 的并发不阻塞。"""
+    async def run():
+        svc = _make_service()
+        project = _make_project()
+        db = _make_db()
+        repo1 = _make_repo(); repo1.id = 1
+        repo2 = _make_repo(); repo2.id = 2
+        dt1 = _make_dev_task(); dt1.id = 1
+        dt2 = _make_dev_task(); dt2.id = 2
+
+        started = []
+
+        async def fake_communicate(_):
+            started.append("started")
+            await asyncio.sleep(0.1)
+            return (b"ok\n", None)
+
+        def fake_create(*args, **kwargs):
+            proc = MagicMock()
+            proc.returncode = 0
+            proc.communicate = fake_communicate
+            return proc
+
+        async def fake_create_async(*args, **kwargs):
+            return fake_create(*args, **kwargs)
+
+        with patch("app.services.staging_deploy_service.asyncio.create_subprocess_exec",
+                   side_effect=fake_create_async), \
+             patch("app.services.staging_deploy_service.notify_creator_targeted",
+                   AsyncMock()):
+            t0 = asyncio.get_event_loop().time()
+            await asyncio.gather(
+                svc.deploy_pr(db, repo1, project, dt1, pr_number=1, head_sha="x"),
+                svc.deploy_pr(db, repo2, project, dt2, pr_number=2, head_sha="y"),
+            )
+            elapsed = asyncio.get_event_loop().time() - t0
+
+        # 应该差不多 0.1s（并行），不是 0.2s（串行）
+        assert elapsed < 0.18, f"different repos should run in parallel, took {elapsed}"
+        assert len(started) == 2
+    asyncio.run(run())
+    print("deploy_pr different-repos parallel ok")
+
+
 def main() -> None:
     test_parse_target_user_at_host()
     test_parse_target_user_at_host_with_port()
@@ -280,6 +378,8 @@ def main() -> None:
     test_deploy_pr_nonzero_exit_marks_failed_and_notifies()
     test_deploy_pr_timeout_kills_and_marks_failed()
     test_deploy_pr_bad_ssh_target_marks_failed()
+    test_deploy_pr_same_repo_concurrent_serializes_and_coalesces()
+    test_deploy_pr_different_repos_parallel()
     print("\nall test_staging_deploy_service checks passed")
 
 

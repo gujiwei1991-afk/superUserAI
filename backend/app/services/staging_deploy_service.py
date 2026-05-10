@@ -103,7 +103,9 @@ class StagingDeployService:
         # per-repo lock 串行
         self._locks: dict[int, asyncio.Lock] = {}
         # per-repo "下一次要部署的 head_sha"，用于合并并发请求
-        self._pending: dict[int, tuple[int, str]] = {}  # repo_id -> (pr_number, head_sha)
+        # repo_id -> (pr_number, head_sha, dev_task) — dev_task is the *latest* one
+        # whose deploy got coalesced, so the replay updates the right row.
+        self._pending: dict[int, tuple[int, str, "DevTask"]] = {}
 
     def _missing_staging_fields(self, repo: "Repo") -> list[str]:
         return [f for f in _STAGING_REQUIRED_FIELDS if not getattr(repo, f, None)]
@@ -117,6 +119,7 @@ class StagingDeployService:
         pr_number: int,
         head_sha: str,
     ) -> None:
+        # skipped 路径不进锁（廉价、立刻返回）
         missing = self._missing_staging_fields(repo)
         if missing:
             logger.info(
@@ -130,6 +133,39 @@ class StagingDeployService:
             await db.commit()
             return
 
+        lock = self._locks.setdefault(repo.id, asyncio.Lock())
+        if lock.locked():
+            # 有部署在跑：把"最新 head_sha"记下来，让当前部署完后接力一次
+            self._pending[repo.id] = (pr_number, head_sha, dev_task)
+            logger.info(
+                "staging deploy queued (coalesce) repo_id=%s pr=%s sha=%s",
+                repo.id, pr_number, head_sha,
+            )
+            return
+
+        async with lock:
+            await self._deploy_pr_inner(db, repo, project, dev_task, pr_number, head_sha)
+
+            # 部署完看看有没有 pending 的，有就接力一次（用最新的 sha）
+            pending = self._pending.pop(repo.id, None)
+            if pending is not None:
+                p_pr, p_sha, p_dt = pending
+                logger.info(
+                    "staging deploy coalesced replay repo_id=%s pr=%s sha=%s",
+                    repo.id, p_pr, p_sha,
+                )
+                await self._deploy_pr_inner(db, repo, project, p_dt, p_pr, p_sha)
+
+    async def _deploy_pr_inner(
+        self,
+        db: "AsyncSession",
+        repo: "Repo",
+        project: "Project",
+        dev_task: "DevTask",
+        pr_number: int,
+        head_sha: str,
+    ) -> None:
+        # 不再有 skipped 检查；调用方已经过滤
         try:
             user, host, port = _parse_ssh_target(
                 repo.staging_ssh_target,
@@ -159,7 +195,6 @@ class StagingDeployService:
             ssh_args += ["-p", str(port)]
         ssh_args += [f"{user}@{host}", "bash", "-s"]
 
-        # 远端脚本（注意 shlex.quote 防注入）
         remote_script = (
             "set -euo pipefail\n"
             f"cd {shlex.quote(repo.staging_deploy_path)}\n"
@@ -192,7 +227,6 @@ class StagingDeployService:
             return
 
         log_text = (stdout or b"").decode("utf-8", errors="replace")
-        # 截取最后 N 行
         lines = log_text.splitlines()
         if len(lines) > self.log_tail_lines:
             lines = lines[-self.log_tail_lines:]
