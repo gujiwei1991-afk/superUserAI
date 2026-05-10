@@ -365,6 +365,65 @@ def test_deploy_pr_different_repos_parallel() -> None:
     print("deploy_pr different-repos parallel ok")
 
 
+def test_recover_stale_deploys_marks_failed() -> None:
+    """模拟 backend 重启：dev_task 卡在 deploying 但开始时间超过 15min → 强改 failed.
+
+    Saves+restores the chosen dev_task's state so the dev DB stays clean.
+    """
+    async def run():
+        from app.services.staging_deploy_service import StagingDeployService
+        from app.database import AsyncSessionLocal
+        from sqlalchemy import text
+
+        async with AsyncSessionLocal() as db:
+            row = (await db.execute(text(
+                "SELECT id, staging_deploy_status, staging_deploy_log, started_at "
+                "FROM dev_tasks LIMIT 1"
+            ))).first()
+            if row is None:
+                print("recover_stale_deploys: no dev_task in db, SKIP")
+                return
+            dev_task_id, orig_status, orig_log, orig_started_at = row
+            # 设置成 deploying + 18 分钟前开始
+            await db.execute(text("""
+                UPDATE dev_tasks
+                SET staging_deploy_status='deploying',
+                    started_at = NOW() - INTERVAL '18 minutes',
+                    staging_deployed_at = NULL
+                WHERE id = :id
+            """), {"id": dev_task_id})
+            await db.commit()
+
+        try:
+            svc = _make_service()
+            await svc.recover_stale_deploys(stale_after_sec=900)
+
+            async with AsyncSessionLocal() as db:
+                row = (await db.execute(text(
+                    "SELECT staging_deploy_status, staging_deploy_log FROM dev_tasks WHERE id=:id"
+                ), {"id": dev_task_id})).first()
+                assert row[0] == "failed", row[0]
+                assert "restart" in (row[1] or "").lower()
+        finally:
+            # Restore original row state so we don't pollute the dev DB
+            async with AsyncSessionLocal() as db:
+                await db.execute(text("""
+                    UPDATE dev_tasks
+                    SET staging_deploy_status = :status,
+                        staging_deploy_log = :log,
+                        started_at = :started_at
+                    WHERE id = :id
+                """), {
+                    "id": dev_task_id,
+                    "status": orig_status,
+                    "log": orig_log,
+                    "started_at": orig_started_at,
+                })
+                await db.commit()
+        print("recover_stale_deploys ok")
+    asyncio.run(run())
+
+
 def main() -> None:
     test_parse_target_user_at_host()
     test_parse_target_user_at_host_with_port()
@@ -380,6 +439,7 @@ def main() -> None:
     test_deploy_pr_bad_ssh_target_marks_failed()
     test_deploy_pr_same_repo_concurrent_serializes_and_coalesces()
     test_deploy_pr_different_repos_parallel()
+    test_recover_stale_deploys_marks_failed()
     print("\nall test_staging_deploy_service checks passed")
 
 

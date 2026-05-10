@@ -264,6 +264,33 @@ class StagingDeployService:
         except Exception:
             logger.exception("staging notify success failed project=%s", project.id)
 
+    async def recover_stale_deploys(self, stale_after_sec: int = 900) -> int:
+        """Mark any dev_task stuck in 'deploying' for > stale_after_sec as failed.
+
+        Called once on backend startup; returns the number of rows updated.
+        """
+        from app.database import AsyncSessionLocal
+        from sqlalchemy import text
+
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(text("""
+                UPDATE dev_tasks
+                SET staging_deploy_status = 'failed',
+                    staging_deploy_log = 'marker: backend restart while deploying'
+                WHERE staging_deploy_status = 'deploying'
+                  AND staging_deployed_at IS NULL
+                  AND started_at < NOW() - make_interval(secs => :stale_after)
+                RETURNING id
+            """), {"stale_after": stale_after_sec})
+            updated = list(result.scalars())
+            await db.commit()
+            if updated:
+                logger.warning(
+                    "staging_deploy: recovered %d stale 'deploying' tasks: %s",
+                    len(updated), updated,
+                )
+            return len(updated)
+
     async def _notify_failure(
         self,
         db: "AsyncSession",
