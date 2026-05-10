@@ -40,18 +40,8 @@ async def lifespan(_: FastAPI):
     await init_db()
     # 启动时清理卡死的 staging deploy 任务
     try:
-        from app.services.staging_deploy_service import StagingDeployService
-        from app.gateway.wechat_client import WeChatClient
-        from app.config import get_settings
-        settings = get_settings()
-        svc = StagingDeployService(
-            wechat_client=WeChatClient(),
-            ssh_key_path=settings.staging_ssh_key_path,
-            ssh_user_default=settings.staging_ssh_user_default,
-            deploy_timeout_sec=settings.staging_deploy_timeout_sec,
-            log_tail_lines=settings.staging_log_tail_lines,
-        )
-        await svc.recover_stale_deploys()
+        from app.api.webhooks import staging_deploy_service
+        await staging_deploy_service.recover_stale_deploys()
     except Exception:
         logging.getLogger(__name__).exception("staging_deploy: stale recovery failed at startup")
     yield
