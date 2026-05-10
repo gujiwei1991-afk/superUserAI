@@ -183,6 +183,90 @@ def test_deploy_pr_success_updates_state_and_notifies() -> None:
     print("deploy_pr success path ok")
 
 
+def test_deploy_pr_nonzero_exit_marks_failed_and_notifies() -> None:
+    async def run():
+        svc = _make_service()
+        repo = _make_repo()
+        dev_task = _make_dev_task()
+        project = _make_project()
+        db = _make_db()
+
+        fake_proc = _fake_subprocess(
+            returncode=1,
+            stdout=b"docker compose error\nbuild failed\n",
+        )
+
+        with patch("app.services.staging_deploy_service.asyncio.create_subprocess_exec",
+                   AsyncMock(return_value=fake_proc)), \
+             patch("app.services.staging_deploy_service.notify_creator_targeted",
+                   AsyncMock()) as mock_notify:
+            await svc.deploy_pr(db, repo, project, dev_task, pr_number=4, head_sha="def")
+
+        assert dev_task.staging_deploy_status == "failed"
+        assert "build failed" in (dev_task.staging_deploy_log or "")
+        assert mock_notify.await_count == 1
+        body = mock_notify.await_args.args[3]
+        assert "PR #4" in body
+        assert "失败" in body
+    asyncio.run(run())
+    print("deploy_pr nonzero exit path ok")
+
+
+def test_deploy_pr_timeout_kills_and_marks_failed() -> None:
+    async def run():
+        svc = _make_service()
+        # timeout 设很短便于触发
+        svc.deploy_timeout_sec = 0.1
+        repo = _make_repo()
+        dev_task = _make_dev_task()
+        project = _make_project()
+        db = _make_db()
+
+        proc = MagicMock()
+        proc.returncode = None
+
+        async def hang(*a, **kw):
+            await asyncio.sleep(5)  # 永远等不到
+            return (b"", None)
+
+        proc.communicate = hang
+        proc.kill = MagicMock()
+        proc.wait = AsyncMock()
+
+        with patch("app.services.staging_deploy_service.asyncio.create_subprocess_exec",
+                   AsyncMock(return_value=proc)), \
+             patch("app.services.staging_deploy_service.notify_creator_targeted",
+                   AsyncMock()) as mock_notify:
+            await svc.deploy_pr(db, repo, project, dev_task, pr_number=5, head_sha="ghi")
+
+        assert dev_task.staging_deploy_status == "failed"
+        assert "timeout" in (dev_task.staging_deploy_log or "").lower()
+        proc.kill.assert_called_once()
+        assert mock_notify.await_count == 1
+    asyncio.run(run())
+    print("deploy_pr timeout path ok")
+
+
+def test_deploy_pr_bad_ssh_target_marks_failed() -> None:
+    async def run():
+        svc = _make_service()
+        repo = _make_repo(staging_ssh_target="deploy@server.com:not-a-port")
+        dev_task = _make_dev_task()
+        project = _make_project()
+        db = _make_db()
+
+        with patch("app.services.staging_deploy_service.notify_creator_targeted",
+                   AsyncMock()) as mock_notify:
+            await svc.deploy_pr(db, repo, project, dev_task, pr_number=6, head_sha="jkl")
+
+        assert dev_task.staging_deploy_status == "failed"
+        assert "ssh target parse error" in (dev_task.staging_deploy_log or "")
+        # 失败也通知
+        assert mock_notify.await_count == 1
+    asyncio.run(run())
+    print("deploy_pr bad ssh target ok")
+
+
 def main() -> None:
     test_parse_target_user_at_host()
     test_parse_target_user_at_host_with_port()
@@ -193,6 +277,9 @@ def main() -> None:
     test_deploy_pr_skips_when_staging_url_missing()
     test_deploy_pr_skips_when_ssh_target_missing()
     test_deploy_pr_success_updates_state_and_notifies()
+    test_deploy_pr_nonzero_exit_marks_failed_and_notifies()
+    test_deploy_pr_timeout_kills_and_marks_failed()
+    test_deploy_pr_bad_ssh_target_marks_failed()
     print("\nall test_staging_deploy_service checks passed")
 
 
