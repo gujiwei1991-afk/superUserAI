@@ -278,6 +278,15 @@ def test_deploy_pr_same_repo_concurrent_serializes_and_coalesces() -> None:
         # 给两个不同的 dev_task（模拟两次 PR push）
         dt_a = _make_dev_task(); dt_a.id = 100
         dt_b = _make_dev_task(); dt_b.id = 101
+        # Make `db.get(DevTask, id)` return the right mock so the coalesce
+        # replay (which re-fetches by id) finds dt_b.
+        async def fake_get(model, id_):
+            if id_ == 100:
+                return dt_a
+            if id_ == 101:
+                return dt_b
+            return None
+        db.get = AsyncMock(side_effect=fake_get)
 
         # SSH 调用计数 + 慢一点让并发能错开
         call_log: list[tuple[int, str]] = []

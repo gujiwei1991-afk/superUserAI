@@ -103,9 +103,10 @@ class StagingDeployService:
         # per-repo lock 串行
         self._locks: dict[int, asyncio.Lock] = {}
         # per-repo "下一次要部署的 head_sha"，用于合并并发请求
-        # repo_id -> (pr_number, head_sha, dev_task) — dev_task is the *latest* one
-        # whose deploy got coalesced, so the replay updates the right row.
-        self._pending: dict[int, tuple[int, str, "DevTask"]] = {}
+        # repo_id -> (pr_number, head_sha, dev_task_id) — store the ID not the ORM
+        # instance because the ORM instance may be from a session that closed
+        # before our replay runs (each webhook event has its own request session).
+        self._pending: dict[int, tuple[int, str, int]] = {}
 
     def _missing_staging_fields(self, repo: "Repo") -> list[str]:
         return [f for f in _STAGING_REQUIRED_FIELDS if not getattr(repo, f, None)]
@@ -136,7 +137,7 @@ class StagingDeployService:
         lock = self._locks.setdefault(repo.id, asyncio.Lock())
         if lock.locked():
             # 有部署在跑：把"最新 head_sha"记下来，让当前部署完后接力一次
-            self._pending[repo.id] = (pr_number, head_sha, dev_task)
+            self._pending[repo.id] = (pr_number, head_sha, dev_task.id)
             logger.info(
                 "staging deploy queued (coalesce) repo_id=%s pr=%s sha=%s",
                 repo.id, pr_number, head_sha,
@@ -149,12 +150,23 @@ class StagingDeployService:
             # 部署完看看有没有 pending 的，有就接力一次（用最新的 sha）
             pending = self._pending.pop(repo.id, None)
             if pending is not None:
-                p_pr, p_sha, p_dt = pending
+                p_pr, p_sha, p_dt_id = pending
                 logger.info(
-                    "staging deploy coalesced replay repo_id=%s pr=%s sha=%s",
-                    repo.id, p_pr, p_sha,
+                    "staging deploy coalesced replay repo_id=%s pr=%s sha=%s dt_id=%s",
+                    repo.id, p_pr, p_sha, p_dt_id,
                 )
-                await self._deploy_pr_inner(db, repo, project, p_dt, p_pr, p_sha)
+                # Re-fetch via the LIVE session — the original ORM instance was
+                # bound to the now-closed session of the webhook request that
+                # got coalesced.
+                from app.models import DevTask  # local to avoid circular import
+                fresh_dt = await db.get(DevTask, p_dt_id)
+                if fresh_dt is None:
+                    logger.warning(
+                        "staging deploy coalesce: dev_task %s not found, skipping replay",
+                        p_dt_id,
+                    )
+                else:
+                    await self._deploy_pr_inner(db, repo, project, fresh_dt, p_pr, p_sha)
 
     async def _deploy_pr_inner(
         self,
