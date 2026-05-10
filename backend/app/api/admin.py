@@ -1384,6 +1384,31 @@ async def update_repo_description(
     )
 
 
+@router.post("/projects/{repo_id}/staging", name="admin_update_repo_staging")
+async def update_repo_staging(
+    request: Request,
+    repo_id: int,
+    current_admin: dict[str, Any] = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    del current_admin
+    repo = await db.get(Repo, repo_id)
+    if repo is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Repo not found")
+    form = await _read_form_data(request)
+    repo.staging_url = form.get("staging_url", "").strip() or None
+    repo.staging_ssh_target = form.get("staging_ssh_target", "").strip() or None
+    repo.staging_deploy_path = form.get("staging_deploy_path", "").strip() or None
+    repo.staging_compose_file = (
+        form.get("staging_compose_file", "").strip() or "docker-compose.staging.yml"
+    )
+    await db.commit()
+    return RedirectResponse(
+        url=f"/admin/projects/{repo_id}?message={quote_plus('Staging 部署配置已更新。')}&message_type=success",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
 @router.get("/settings", name="admin_settings")
 async def settings_page(
     request: Request,
@@ -1699,7 +1724,7 @@ async def admin_redeploy_staging(
     background_tasks: BackgroundTasks,
     current_admin: dict[str, Any] = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
-) -> dict[str, Any]:
+) -> RedirectResponse:
     """Manually re-trigger a staging deploy for the given dev_task.
 
     Reuses the per-repo lock + coalesce in StagingDeployService. Uses
@@ -1722,4 +1747,7 @@ async def admin_redeploy_staging(
         staging_deploy_service.deploy_pr,
         db, repo, project, dt, dt.pr_number, "FETCH_HEAD",
     )
-    return {"queued": True, "dev_task_id": dev_task_id}
+    return RedirectResponse(
+        url=f"/admin/projects/{repo.id}?message={quote_plus('已重新触发 staging 部署。')}&message_type=success",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
