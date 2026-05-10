@@ -7,6 +7,7 @@ class ProjectStatus(str, Enum):
     APPROVED = "approved"
     DEVELOPING = "developing"
     DEPLOYED = "deployed"
+    STAGED = "staged"
     ACCEPTANCE = "acceptance"
     COMPLETED = "completed"
     REJECTED = "rejected"
