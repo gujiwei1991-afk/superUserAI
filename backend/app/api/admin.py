@@ -8,7 +8,7 @@ from typing import Any
 from urllib.parse import parse_qs, quote_plus
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, status
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import delete as sa_delete, func, select
@@ -1691,3 +1691,35 @@ async def revoke_repo(
     return _redirect_to_user_detail(
         user_id, message=f"已撤销对仓库「{repo_name}」的授权。"
     )
+
+
+@router.post("/dev-tasks/{dev_task_id}/redeploy-staging", name="admin_redeploy_staging")
+async def admin_redeploy_staging(
+    dev_task_id: int,
+    background_tasks: BackgroundTasks,
+    current_admin: dict[str, Any] = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Manually re-trigger a staging deploy for the given dev_task.
+
+    Reuses the per-repo lock + coalesce in StagingDeployService. Uses
+    FETCH_HEAD as head_sha so the deploy uses whatever the PR's current
+    GitHub head is (no need to call GitHub API for the latest sha).
+    """
+    from app.api.webhooks import staging_deploy_service
+
+    dt = await db.get(DevTask, dev_task_id)
+    if dt is None:
+        raise HTTPException(status_code=404, detail="dev_task not found")
+    project = await db.get(Project, dt.project_id)
+    repo = await db.get(Repo, dt.repo_id)
+    if project is None or repo is None:
+        raise HTTPException(status_code=404, detail="project/repo missing")
+    if dt.pr_number is None:
+        raise HTTPException(status_code=400, detail="dev_task has no pr_number")
+
+    background_tasks.add_task(
+        staging_deploy_service.deploy_pr,
+        db, repo, project, dt, dt.pr_number, "FETCH_HEAD",
+    )
+    return {"queued": True, "dev_task_id": dev_task_id}
