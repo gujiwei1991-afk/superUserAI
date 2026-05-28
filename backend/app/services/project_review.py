@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import logging
 
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.gateway.wechat_client import WeChatClient
-from app.models import Project, Repo, User
+from app.models import Project, ProjectDevLog, Repo, User
 from app.services.github_service import GitHubService
 from shared.constants import ProjectStatus
 
@@ -42,6 +43,63 @@ async def create_issue_for_project(
     project.github_issue_number = issue_number
     project.approver_id = approver_id
     project.status = ProjectStatus.APPROVED.value
+    await db.flush()
+    return issue_number
+
+
+async def request_fix_iteration(
+    db: AsyncSession,
+    *,
+    project: Project,
+    repo: Repo,
+    fix_description: str,
+) -> int:
+    """Dispatch a code-fix iteration to dev-agent.
+
+    Creates a new GitHub Issue describing the fix request (with the original
+    PRD as context), points `project.github_issue_number` at it, flips
+    `project.status -> APPROVED` so dev-agent's claim poller picks it up.
+    Returns the new issue number.
+
+    The caller is responsible for committing and for messaging the user.
+    """
+    # 数当前是第几轮 fix（前面已开过几个 dev_log 标记）
+    fix_round_stmt = select(func.count(ProjectDevLog.id)).where(
+        ProjectDevLog.project_id == project.id,
+        ProjectDevLog.message.like("fix iteration #%"),
+    )
+    prior = (await db.execute(fix_round_stmt)).scalar_one() or 0
+    iteration = int(prior) + 1
+
+    prd = (project.prd_content or "").strip()
+    prd_block = f"## 原 PRD\n\n{prd}\n\n" if prd else ""
+    issue_body = (
+        f"## 修复需求（第 {iteration} 轮）\n\n"
+        f"{fix_description.strip()}\n\n"
+        f"{prd_block}"
+        f"---\nSuperUserAI Project ID: {project.id}\n"
+        f"Fix Iteration: {iteration}"
+    )
+
+    github = GitHubService.for_repo(repo)
+    try:
+        issue_data = await github.create_issue(
+            owner=repo.github_owner,
+            repo=repo.github_repo,
+            title=f"[SuperUserAI][修复 #{iteration}] {project.title}",
+            body=issue_body,
+            labels=["superuserai", "auto-dev", "fix"],
+        )
+    finally:
+        await github.close()
+
+    issue_number = int(issue_data["number"])
+    project.github_issue_number = issue_number
+    project.status = ProjectStatus.APPROVED.value
+    db.add(ProjectDevLog(
+        project_id=project.id,
+        message=f"fix iteration #{iteration}: issue #{issue_number} — {fix_description.strip()[:200]}",
+    ))
     await db.flush()
     return issue_number
 

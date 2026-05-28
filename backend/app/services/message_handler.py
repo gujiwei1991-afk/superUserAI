@@ -289,7 +289,16 @@ class MessageHandler:
             return "当前项目还没有生成方案，请先继续沟通后回复『确认』。"
 
         if project.status == ProjectStatus.COMPLETED.value:
-            return "当前项目已经完成，不能再修改方案。"
+            return "当前项目已经完成，如需新调整请发送 #新需求 重新开始。"
+
+        # 验收阶段（含等待和已部署）→ 直接派 AI 改代码，不动 PRD
+        if project.status in {
+            ProjectStatus.ACCEPTANCE.value,
+            ProjectStatus.DEPLOYED.value,
+        }:
+            return await self._dispatch_fix_iteration(
+                project, repo, feedback, wechat_user_id,
+            )
 
         if project.status not in {ProjectStatus.REVIEWING.value, ProjectStatus.REJECTED.value}:
             return f"当前项目状态为「{self._status_label(project.status)}」，暂时不能修改方案。"
@@ -320,6 +329,41 @@ class MessageHandler:
         await self._notify_admins_for_review(project)
 
         return f"已根据你的反馈更新方案：\n\n{updated_prd}"
+
+    async def _dispatch_fix_iteration(
+        self,
+        project: Project,
+        repo: Repo,
+        feedback: str,
+        wechat_user_id: str,
+    ) -> str:
+        """Acceptance-stage `#修改`：派 dev-agent 改代码（不动 PRD）。"""
+        from app.services.project_review import request_fix_iteration
+        try:
+            issue_number = await request_fix_iteration(
+                self.db,
+                project=project,
+                repo=repo,
+                fix_description=feedback,
+            )
+        except Exception:
+            logger.exception(
+                "fix iteration dispatch failed project=%s repo=%s",
+                project.id, repo.id,
+            )
+            return "派发修复任务失败，请稍后重试或联系管理员。"
+
+        await self.project_service.add_message(
+            project.id, wechat_user_id, "user", f"#修改 {feedback}"
+        )
+        await self.project_service.add_message(
+            project.id, wechat_user_id, "assistant",
+            f"已派 AI 开始修复（issue #{issue_number}），修好后会在测试环境/生产环境再次通知你验收。",
+        )
+        return (
+            f"已派 AI 开始修复（GitHub issue #{issue_number}）。\n"
+            "修好后会重新部署到测试环境，请稍候。"
+        )
 
     async def _handle_score(
         self,
