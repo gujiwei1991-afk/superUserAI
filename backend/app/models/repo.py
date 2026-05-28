@@ -30,6 +30,11 @@ class Repo(Base):
     staging_ssh_target: Mapped[str | None]
     staging_deploy_path: Mapped[str | None] = mapped_column(Text)
     staging_compose_file: Mapped[str] = mapped_column(default="docker-compose.staging.yml")
+    prod_url: Mapped[str | None] = mapped_column(Text)
+    prod_ssh_target: Mapped[str | None]
+    prod_deploy_path: Mapped[str | None] = mapped_column(Text)
+    prod_compose_file: Mapped[str] = mapped_column(default="docker-compose.prod.yml")
+    prod_run_migrations: Mapped[bool] = mapped_column(default=True, server_default="true")
 
     projects: Mapped[list[Project]] = relationship("Project", back_populates="repo")
     dev_tasks: Mapped[list["DevTask"]] = relationship(

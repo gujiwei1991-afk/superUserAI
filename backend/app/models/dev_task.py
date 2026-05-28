@@ -30,6 +30,10 @@ class DevTask(Base):
     staging_deploy_status: Mapped[str] = mapped_column(default="pending")
     staging_deployed_at: Mapped[datetime | None]
     staging_deploy_log: Mapped[str | None] = mapped_column(Text)
+    prod_deploy_status: Mapped[str] = mapped_column(default="pending")
+    prod_deployed_at: Mapped[datetime | None]
+    prod_deploy_log: Mapped[str | None] = mapped_column(Text)
+    prod_deployed_sha: Mapped[str | None]
 
     project: Mapped["Project"] = relationship("Project", back_populates="dev_tasks")
     repo: Mapped["Repo"] = relationship("Repo", back_populates="dev_tasks")

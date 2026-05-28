@@ -1414,6 +1414,32 @@ async def update_repo_staging(
     )
 
 
+@router.post("/projects/{repo_id}/prod", name="admin_update_repo_prod")
+async def update_repo_prod(
+    request: Request,
+    repo_id: int,
+    current_admin: dict[str, Any] = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    del current_admin
+    repo = await db.get(Repo, repo_id)
+    if repo is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Repo not found")
+    form = await _read_form_data(request)
+    repo.prod_url = form.get("prod_url", "").strip() or None
+    repo.prod_ssh_target = form.get("prod_ssh_target", "").strip() or None
+    repo.prod_deploy_path = form.get("prod_deploy_path", "").strip() or None
+    repo.prod_compose_file = (
+        form.get("prod_compose_file", "").strip() or "docker-compose.prod.yml"
+    )
+    repo.prod_run_migrations = form.get("prod_run_migrations") == "on"
+    await db.commit()
+    return RedirectResponse(
+        url=f"/admin/projects/{repo_id}?message={quote_plus('生产部署配置已更新。')}&message_type=success",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
 @router.get("/settings", name="admin_settings")
 async def settings_page(
     request: Request,
@@ -1754,5 +1780,40 @@ async def admin_redeploy_staging(
     )
     return RedirectResponse(
         url=f"/admin/projects/{repo.id}?message={quote_plus('已重新触发 staging 部署。')}&message_type=success",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@router.post("/dev-tasks/{dev_task_id}/redeploy-prod", name="admin_redeploy_prod")
+async def admin_redeploy_prod(
+    dev_task_id: int,
+    background_tasks: BackgroundTasks,
+    current_admin: dict[str, Any] = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> RedirectResponse:
+    """Manually re-trigger a production deploy for the given dev_task.
+
+    Uses `prod_deployed_sha` if present (re-deploy current prod commit),
+    otherwise falls back to "FETCH_HEAD" against origin/main.
+    """
+    from app.api.webhooks import production_deploy_service
+
+    dt = await db.get(DevTask, dev_task_id)
+    if dt is None:
+        raise HTTPException(status_code=404, detail="dev_task not found")
+    project = await db.get(Project, dt.project_id)
+    repo = await db.get(Repo, dt.repo_id)
+    if project is None or repo is None:
+        raise HTTPException(status_code=404, detail="project/repo missing")
+    if dt.pr_number is None:
+        raise HTTPException(status_code=400, detail="dev_task has no pr_number")
+
+    sha = dt.prod_deployed_sha or "FETCH_HEAD"
+    background_tasks.add_task(
+        production_deploy_service.deploy_merge,
+        db, repo, project, dt, sha, dt.pr_number,
+    )
+    return RedirectResponse(
+        url=f"/admin/projects/{repo.id}?message={quote_plus('已重新触发生产部署。')}&message_type=success",
         status_code=status.HTTP_303_SEE_OTHER,
     )

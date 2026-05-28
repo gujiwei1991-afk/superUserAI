@@ -44,6 +44,12 @@ async def lifespan(_: FastAPI):
         await staging_deploy_service.recover_stale_deploys()
     except Exception:
         logging.getLogger(__name__).exception("staging_deploy: stale recovery failed at startup")
+    # 启动时清理卡死的 prod deploy 任务
+    try:
+        from app.api.webhooks import production_deploy_service
+        await production_deploy_service.recover_stale_deploys()
+    except Exception:
+        logging.getLogger(__name__).exception("prod_deploy: stale recovery failed at startup")
     yield
     await close_db()
 

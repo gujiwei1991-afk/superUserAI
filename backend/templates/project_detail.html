@@ -169,6 +169,96 @@
         </div>
         {% endif %}
 
+        <div class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+            <h2 class="text-lg font-semibold text-slate-900">生产部署配置</h2>
+            <p class="mt-1 text-xs text-slate-500">配齐这 4 项后，PR 合并到 main 会自动 SSH 部署到生产服务器。留空则跳过。</p>
+            <form method="post" action="/admin/projects/{{ repo.id }}/prod" class="mt-4 space-y-4">
+                <label class="block">
+                    <span class="mb-2 block text-sm font-medium text-slate-700">生产 URL</span>
+                    <input type="url" name="prod_url" value="{{ repo.prod_url or '' }}" class="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-slate-400 focus:bg-white" placeholder="https://app.myapp.com">
+                    <span class="mt-2 block text-xs text-slate-500">客户在企微点这个链接看上线版本。</span>
+                </label>
+                <label class="block">
+                    <span class="mb-2 block text-sm font-medium text-slate-700">SSH 目标</span>
+                    <input type="text" name="prod_ssh_target" value="{{ repo.prod_ssh_target or '' }}" class="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 font-mono text-sm outline-none focus:border-slate-400 focus:bg-white" placeholder="deploy@prod.server.com[:port]">
+                </label>
+                <label class="block">
+                    <span class="mb-2 block text-sm font-medium text-slate-700">服务器上的部署目录</span>
+                    <input type="text" name="prod_deploy_path" value="{{ repo.prod_deploy_path or '' }}" class="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 font-mono text-sm outline-none focus:border-slate-400 focus:bg-white" placeholder="/srv/prod/myapp">
+                </label>
+                <label class="block">
+                    <span class="mb-2 block text-sm font-medium text-slate-700">Docker Compose 文件名</span>
+                    <input type="text" name="prod_compose_file" value="{{ repo.prod_compose_file or 'docker-compose.prod.yml' }}" class="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 font-mono text-sm outline-none focus:border-slate-400 focus:bg-white">
+                </label>
+                <label class="flex items-center gap-3">
+                    <input type="checkbox" name="prod_run_migrations" {% if repo.prod_run_migrations %}checked{% endif %} class="h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-400">
+                    <span class="text-sm text-slate-700">部署完跑 <code class="rounded bg-slate-100 px-1 font-mono">alembic upgrade head</code></span>
+                </label>
+                <button type="submit" class="rounded-2xl bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800">保存生产配置</button>
+            </form>
+        </div>
+
+        {% if dev_tasks %}
+        {% set latest_pdt = dev_tasks[0].task %}
+        <div class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+            <h2 class="text-lg font-semibold text-slate-900">生产部署状态（最新）</h2>
+            <dl class="mt-4 space-y-3 text-sm">
+                <div class="flex justify-between gap-4">
+                    <dt class="text-slate-500">关联 PR</dt>
+                    <dd>
+                        {% if dev_tasks[0].pr_url %}
+                        <a href="{{ dev_tasks[0].pr_url }}" target="_blank" rel="noreferrer" class="font-medium text-blue-600 hover:text-blue-500">PR #{{ latest_pdt.pr_number or '—' }}</a>
+                        {% else %}
+                        <span class="text-slate-400">{{ latest_pdt.pr_number or '—' }}</span>
+                        {% endif %}
+                    </dd>
+                </div>
+                <div class="flex justify-between gap-4">
+                    <dt class="text-slate-500">部署状态</dt>
+                    <dd>
+                        {% set ps = latest_pdt.prod_deploy_status or 'pending' %}
+                        <span class="inline-flex rounded-full px-3 py-1 text-xs font-medium ring-1
+                          {% if ps == 'success' %}bg-emerald-100 text-emerald-700 ring-emerald-200
+                          {% elif ps == 'failed' %}bg-rose-100 text-rose-700 ring-rose-200
+                          {% elif ps == 'deploying' %}bg-amber-100 text-amber-700 ring-amber-200
+                          {% else %}bg-slate-100 text-slate-600 ring-slate-200{% endif %}">{{ ps }}</span>
+                    </dd>
+                </div>
+                {% if latest_pdt.prod_deployed_sha %}
+                <div class="flex justify-between gap-4">
+                    <dt class="text-slate-500">当前生产 SHA</dt>
+                    <dd class="font-mono text-xs text-slate-700">{{ latest_pdt.prod_deployed_sha[:12] }}</dd>
+                </div>
+                {% endif %}
+                {% if latest_pdt.prod_deployed_at %}
+                <div class="flex justify-between gap-4">
+                    <dt class="text-slate-500">最近成功部署</dt>
+                    <dd class="text-slate-700">{{ latest_pdt.prod_deployed_at.strftime('%Y-%m-%d %H:%M:%S') }}</dd>
+                </div>
+                {% endif %}
+                {% if repo.prod_url %}
+                <div class="flex justify-between gap-4">
+                    <dt class="text-slate-500">生产 URL</dt>
+                    <dd>
+                        <a href="{{ repo.prod_url }}" target="_blank" rel="noreferrer" class="font-medium text-blue-600 hover:text-blue-500">{{ repo.prod_url }}</a>
+                    </dd>
+                </div>
+                {% endif %}
+            </dl>
+            {% if latest_pdt.prod_deploy_log %}
+            <details class="mt-4">
+                <summary class="cursor-pointer text-sm font-medium text-slate-700 hover:text-slate-900">查看部署日志</summary>
+                <pre class="mt-2 max-h-60 overflow-auto rounded-2xl bg-slate-900 p-4 font-mono text-xs leading-relaxed text-slate-100">{{ latest_pdt.prod_deploy_log }}</pre>
+            </details>
+            {% endif %}
+            {% if ps in ('failed', 'success') and latest_pdt.pr_number %}
+            <form method="post" action="/admin/dev-tasks/{{ latest_pdt.id }}/redeploy-prod" class="mt-4">
+                <button type="submit" class="rounded-2xl border border-slate-300 px-4 py-2 text-xs font-medium text-slate-700 hover:border-slate-400 hover:bg-slate-100">重新部署到生产</button>
+            </form>
+            {% endif %}
+        </div>
+        {% endif %}
+
         <div class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200 lg:col-span-2">
             <div class="flex items-start justify-between gap-4">
                 <div>

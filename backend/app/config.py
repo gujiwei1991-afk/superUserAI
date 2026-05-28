@@ -38,6 +38,10 @@ class Settings(BaseSettings):
     staging_ssh_user_default: str = "deploy"
     staging_deploy_timeout_sec: int = 600
     staging_log_tail_lines: int = 200
+    prod_ssh_key_path: str = ""
+    prod_ssh_user_default: str = "deploy"
+    prod_deploy_timeout_sec: int = 1200
+    prod_log_tail_lines: int = 200
 
 
 @lru_cache

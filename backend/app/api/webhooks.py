@@ -3,7 +3,6 @@ from __future__ import annotations
 import hmac
 import json
 import logging
-import re
 from hashlib import sha256
 from typing import Any
 
@@ -15,9 +14,8 @@ from app.config import get_settings
 from app.database import get_db
 from app.gateway.wechat_client import WeChatClient
 from app.models import DevTask, Project, Repo
-from app.services.project_review import notify_creator_targeted
+from app.services.production_deploy_service import ProductionDeployService
 from app.services.staging_deploy_service import StagingDeployService
-from shared.constants import ProjectStatus
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +35,21 @@ def _build_staging_service() -> StagingDeployService:
 
 
 staging_deploy_service = _build_staging_service()
+
+
+def _build_production_service() -> ProductionDeployService:
+    s = get_settings()
+    return ProductionDeployService(
+        wechat_client=wechat,
+        # Fall back to staging key if prod key isn't separately configured.
+        ssh_key_path=s.prod_ssh_key_path or s.staging_ssh_key_path,
+        ssh_user_default=s.prod_ssh_user_default,
+        deploy_timeout_sec=s.prod_deploy_timeout_sec,
+        log_tail_lines=s.prod_log_tail_lines,
+    )
+
+
+production_deploy_service = _build_production_service()
 
 
 def verify_github_signature(secret: str, body: bytes, signature: str | None) -> bool:
@@ -68,7 +81,7 @@ async def github_webhook(
         if action in ("opened", "synchronize", "reopened"):
             await _dispatch_staging_deploy(payload, db, background_tasks)
         else:
-            await _handle_pull_request_event(payload, db)
+            await _handle_pull_request_event(payload, db, background_tasks)
     elif event == "workflow_run":
         await _handle_workflow_run_event(payload, db)
     elif event == "ping":
@@ -80,7 +93,11 @@ async def github_webhook(
     return {"status": "ok"}
 
 
-async def _handle_pull_request_event(payload: dict[str, Any], db: AsyncSession) -> None:
+async def _handle_pull_request_event(
+    payload: dict[str, Any],
+    db: AsyncSession,
+    background_tasks: BackgroundTasks,
+) -> None:
     pull_request = payload.get("pull_request") or {}
     if payload.get("action") != "closed" or pull_request.get("merged") is not True:
         return
@@ -90,71 +107,53 @@ async def _handle_pull_request_event(payload: dict[str, Any], db: AsyncSession) 
         logger.info("Ignoring pull_request event with invalid PR number: %s", pr_number)
         return
 
-    result = await db.execute(select(Project).where(Project.github_pr_number == pr_number))
-    project = result.scalar_one_or_none()
+    merge_sha = pull_request.get("merge_commit_sha") or (pull_request.get("head") or {}).get("sha")
+    if not isinstance(merge_sha, str) or not merge_sha:
+        logger.info("Ignoring merged PR #%s with no merge_commit_sha", pr_number)
+        return
+
+    project = (await db.execute(
+        select(Project).where(Project.github_pr_number == pr_number)
+    )).scalar_one_or_none()
     if project is None:
         logger.info("No project found for merged PR #%s", pr_number)
         return
 
-    project.status = ProjectStatus.DEPLOYED.value
-    await _notify_project_creator(
-        db,
-        project,
-        (
-            f"✅ 需求《{project.title}》对应的 GitHub PR #{pr_number} 已合并，代码已部署。\n\n"
-            "请去验证一下功能是否符合预期：\n"
-            "• 验收通过：发送  #评分 <1-10> <反馈内容>  完成闭环\n"
-            "• 还有问题：发送  #修改 <修改建议>  让 AI 继续调整\n"
-        ),
+    repo = (await db.execute(
+        select(Repo).where(Repo.id == project.repo_id)
+    )).scalar_one_or_none()
+    dev_task = (await db.execute(
+        select(DevTask)
+        .where(DevTask.project_id == project.id)
+        .order_by(DevTask.id.desc())
+        .limit(1)
+    )).scalar_one_or_none()
+
+    if repo is None or dev_task is None:
+        logger.info("prod dispatch: missing repo/dev_task for project %s", project.id)
+        return
+
+    background_tasks.add_task(
+        production_deploy_service.deploy_merge,
+        db, repo, project, dev_task, merge_sha, pr_number,
     )
 
 
 async def _handle_workflow_run_event(payload: dict[str, Any], db: AsyncSession) -> None:
+    """Kept for visibility only.
+
+    Production deployment is now driven by the `pull_request closed+merged`
+    event via ProductionDeployService — we no longer flip project status
+    here, since that would race with (and duplicate) the prod deploy flow.
+    """
     workflow_run = payload.get("workflow_run") or {}
-    if payload.get("action") != "completed" or workflow_run.get("conclusion") != "success":
+    if payload.get("action") != "completed":
         return
-
-    head_branch = workflow_run.get("head_branch", "")
-    match = re.fullmatch(r"feat/issue-(\d+)", head_branch)
-    if match is None:
-        logger.info("Ignoring workflow_run event with unmatched branch: %s", head_branch)
-        return
-
-    issue_number = int(match.group(1))
-    result = await db.execute(select(Project).where(Project.github_issue_number == issue_number))
-    project = result.scalar_one_or_none()
-    if project is None:
-        logger.info("No project found for workflow issue #%s", issue_number)
-        return
-
-    if project.status != ProjectStatus.DEVELOPING.value:
-        logger.info(
-            "Ignoring workflow_run event for project id=%s with status=%s",
-            project.id,
-            project.status,
-        )
-        return
-
-    project.status = ProjectStatus.DEPLOYED.value
-    await _notify_project_creator(
-        db,
-        project,
-        (
-            f"🚀 需求《{project.title}》已部署成功。\n\n"
-            "请验证一下功能：\n"
-            "• 验收通过：发送  #评分 <1-10> <反馈内容>  完成闭环\n"
-            "• 还有问题：发送  #修改 <修改建议>  让 AI 继续调整\n"
-        ),
+    logger.info(
+        "workflow_run completed: branch=%s conclusion=%s (informational only)",
+        workflow_run.get("head_branch", ""),
+        workflow_run.get("conclusion"),
     )
-
-
-async def _notify_project_creator(
-    db: AsyncSession,
-    project: Project,
-    message: str,
-) -> None:
-    # 走共享 helper:有 group_id 就发群里 @ creator,否则私聊 creator;失败已在 helper 内吞掉。
-    await notify_creator_targeted(db, wechat, project, message)
 
 
 async def _dispatch_staging_deploy(
