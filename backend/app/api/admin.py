@@ -25,7 +25,7 @@ from app.api.auth import (
 from app.config import get_settings
 from app.database import get_db
 from app.gateway.wechat_client import WeChatClient
-from app.models import DevTask, Project, ProjectDevLog, Repo, SystemConfig, User, UserRepo
+from app.models import DevTask, Feedback, Project, ProjectDevLog, Repo, SystemConfig, User, UserRepo
 from app.services.config_service import ConfigService
 from app.services.github_service import GitHubService
 from app.services.project_review import (
@@ -734,6 +734,41 @@ async def reviews(
         context={
             "current_admin": current_admin,
             "projects": projects,
+        },
+    )
+
+
+@router.get("/feedback", name="admin_feedback")
+async def feedback_list(
+    request: Request,
+    current_admin: dict[str, Any] = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    stmt = (
+        select(Feedback)
+        .options(
+            selectinload(Feedback.project).selectinload(Project.repo),
+            selectinload(Feedback.user),
+        )
+        .order_by(Feedback.created_at.desc(), Feedback.id.desc())
+    )
+    rows = list((await db.execute(stmt)).scalars().all())
+    # 一些聚合统计
+    score_count = len(rows)
+    avg_score = (sum(r.score for r in rows) / score_count) if score_count else 0.0
+    low_score = sum(1 for r in rows if r.score <= 5)
+    return _render(
+        request,
+        "feedback.html",
+        active_page="feedback",
+        context={
+            "current_admin": current_admin,
+            "feedbacks": rows,
+            "stats": {
+                "count": score_count,
+                "avg": round(avg_score, 2),
+                "low": low_score,
+            },
         },
     )
 

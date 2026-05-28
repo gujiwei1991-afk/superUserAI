@@ -328,7 +328,13 @@ class MessageHandler:
         wechat_user_id: str,
         command: Command,
     ) -> str:
-        score = int(command.args.get("score", 0))
+        try:
+            score = int(command.args.get("score", 0))
+        except (TypeError, ValueError):
+            return "评分必须是 1-10 之间的整数，例如：#评分 8 功能基本符合预期"
+        if not (1 <= score <= 10):
+            return "评分必须是 1-10 之间的整数，例如：#评分 8 功能基本符合预期"
+
         comment = str(command.args.get("comment", "")).strip()
         if not comment:
             return "评分时请同时附带文字反馈，例如：#评分 8 功能基本符合预期"
@@ -337,8 +343,16 @@ class MessageHandler:
         if error_reply is not None or project is None:
             return error_reply or "当前没有可评分的项目，请先发送 #状态 或 #列表 查看项目。"
 
-        if project.status in {ProjectStatus.DRAFTING.value, ProjectStatus.REVIEWING.value}:
-            return "当前项目还处在需求阶段，暂时不能评分。请等待开发和验收流程完成后再评分。"
+        # 状态白名单
+        if project.status == ProjectStatus.COMPLETED.value:
+            return "该项目已完成评分，不能重复评分。如有新反馈请发起 #新需求。"
+        if project.status == ProjectStatus.STAGED.value:
+            return "PR 还在 staging 环境，等合并到 main 部署上线后再评分。"
+        if project.status not in {
+            ProjectStatus.DEPLOYED.value,
+            ProjectStatus.ACCEPTANCE.value,
+        }:
+            return f"当前项目状态为「{self._status_label(project.status)}」，暂时不能评分。"
 
         project.score = float(score)
         project.feedback = comment

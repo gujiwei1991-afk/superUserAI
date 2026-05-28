@@ -244,9 +244,53 @@ class ProductionDeployService:
         dev_task.prod_deploy_status = "success"
         dev_task.prod_deployed_at = datetime.utcnow()
         dev_task.prod_deployed_sha = merge_sha
-        project.status = ProjectStatus.DEPLOYED.value
+        # 直接进入 ACCEPTANCE（待验收），跳过 DEPLOYED 中间态。
+        # 同时把 creator 的 session 切到 SCORING + 激活本项目，
+        # 这样用户在企微收到通知后 #评分 命令能正确命中本项目。
+        project.status = ProjectStatus.ACCEPTANCE.value
+        await self._activate_creator_scoring(db, project)
         await db.commit()
         await self._notify_success(db, project, repo, pr_number)
+
+    async def _activate_creator_scoring(
+        self,
+        db: "AsyncSession",
+        project: "Project",
+    ) -> None:
+        """Switch the project creator's session into SCORING with this project active.
+
+        Best-effort: if the creator has no session yet, we create one. Failures
+        are logged but never raised — deploy success path must not break on
+        session bookkeeping.
+        """
+        try:
+            from sqlalchemy import select
+            from app.models import Session as UserSession
+            from shared.constants import SessionState
+
+            stmt = (
+                select(UserSession)
+                .where(UserSession.user_id == project.creator_id)
+                .with_for_update()
+            )
+            sess = (await db.execute(stmt)).scalar_one_or_none()
+            if sess is None:
+                sess = UserSession(
+                    user_id=project.creator_id,
+                    state=SessionState.SCORING.value,
+                    active_project_id=project.id,
+                )
+                db.add(sess)
+                await db.flush()
+                return
+            sess.state = SessionState.SCORING.value
+            sess.active_project_id = project.id
+            await db.flush()
+        except Exception:
+            logger.exception(
+                "prod deploy: failed to activate creator scoring for project=%s",
+                project.id,
+            )
 
     async def _notify_success(
         self,

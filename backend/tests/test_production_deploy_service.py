@@ -88,6 +88,12 @@ def _make_project():
 def _make_db():
     db = MagicMock()
     db.commit = AsyncMock()
+    # _activate_creator_scoring uses db.execute().scalar_one_or_none() to find session,
+    # then db.add + db.flush. Stubbed to "no existing session" so the new-session branch runs.
+    no_session = MagicMock(scalar_one_or_none=lambda: None)
+    db.execute = AsyncMock(return_value=no_session)
+    db.add = MagicMock()
+    db.flush = AsyncMock()
     return db
 
 
@@ -114,12 +120,13 @@ def test_deploy_merge_skips_when_prod_url_missing() -> None:
     print("deploy_merge skips when prod_url missing ok")
 
 
-def test_deploy_merge_success_flips_to_deployed_and_records_sha() -> None:
+def test_deploy_merge_success_flips_to_acceptance_and_records_sha() -> None:
     async def run():
         svc = _make_service()
         repo = _make_repo()
         dev_task = _make_dev_task()
         project = _make_project()
+        project.creator_id = 99
         db = _make_db()
         fake_proc = _fake_subprocess(returncode=0, stdout=b"deploy ok\nUp 0\n")
 
@@ -133,7 +140,8 @@ def test_deploy_merge_success_flips_to_deployed_and_records_sha() -> None:
         assert dev_task.prod_deploy_status == "success"
         assert dev_task.prod_deployed_at is not None
         assert dev_task.prod_deployed_sha == "cafebabe"
-        assert project.status == "deployed"
+        # 新行为：进入 ACCEPTANCE（待验收），而非 DEPLOYED
+        assert project.status == "acceptance", project.status
         assert mock_notify.await_count == 1
         body = mock_notify.await_args.args[3]
         assert "https://app.example.com" in body
@@ -279,7 +287,7 @@ def main() -> None:
     test_parse_target_user_at_host_with_port()
     test_parse_target_empty_raises()
     test_deploy_merge_skips_when_prod_url_missing()
-    test_deploy_merge_success_flips_to_deployed_and_records_sha()
+    test_deploy_merge_success_flips_to_acceptance_and_records_sha()
     test_deploy_merge_includes_alembic_when_run_migrations_true()
     test_deploy_merge_skips_alembic_when_run_migrations_false()
     test_deploy_merge_nonzero_exit_marks_failed_and_notifies()
