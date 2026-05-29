@@ -191,21 +191,28 @@ class ProductionDeployService:
         ssh_args += [f"{user}@{host}", "bash", "-s"]
 
         compose_file = shlex.quote(repo.prod_compose_file)
+        # 显式项目名（-p）。线上既有 stack 若用 -p/COMPOSE_PROJECT_NAME 起的，
+        # 必须填 prod_compose_project，否则项目名会按工作目录名解析，起出平行容器。
+        project_name = (repo.prod_compose_project or "").strip()
+        compose = "docker compose"
+        if project_name:
+            compose += f" -p {shlex.quote(project_name)}"
+        compose += f" -f {compose_file}"
         script_lines = [
             "set -euo pipefail",
             f"cd {shlex.quote(repo.prod_deploy_path)}",
             "git fetch origin main",
             "git checkout -f main",
             f"git reset --hard {shlex.quote(merge_sha)}",
-            f"docker compose -f {compose_file} up -d --build",
+            f"{compose} up -d --build",
         ]
         if repo.prod_run_migrations:
             # Migration container: assume `backend` service exists in compose;
             # if not, repo owners can set prod_run_migrations=false.
             script_lines.append(
-                f"docker compose -f {compose_file} run --rm backend alembic upgrade head"
+                f"{compose} run --rm backend alembic upgrade head"
             )
-        script_lines.append(f"docker compose -f {compose_file} ps")
+        script_lines.append(f"{compose} ps")
         remote_script = "\n".join(script_lines) + "\n"
 
         proc = await asyncio.create_subprocess_exec(

@@ -110,6 +110,11 @@
                     <span class="mb-2 block text-sm font-medium text-slate-700">Docker Compose 文件名</span>
                     <input type="text" name="staging_compose_file" value="{{ repo.staging_compose_file or 'docker-compose.staging.yml' }}" class="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 font-mono text-sm outline-none focus:border-slate-400 focus:bg-white">
                 </label>
+                <label class="block">
+                    <span class="mb-2 block text-sm font-medium text-slate-700">Compose 项目名（-p，可选）</span>
+                    <input type="text" name="staging_compose_project" value="{{ repo.staging_compose_project or '' }}" class="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 font-mono text-sm outline-none focus:border-slate-400 focus:bg-white" placeholder="留空=按工作目录名">
+                    <span class="mt-1 block text-xs text-slate-400">线上 stack 若用 -p/COMPOSE_PROJECT_NAME 起的，填对应项目名，否则会起出平行容器</span>
+                </label>
                 <button type="submit" class="rounded-2xl bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800">保存 Staging 配置</button>
             </form>
         </div>
@@ -189,6 +194,11 @@
                 <label class="block">
                     <span class="mb-2 block text-sm font-medium text-slate-700">Docker Compose 文件名</span>
                     <input type="text" name="prod_compose_file" value="{{ repo.prod_compose_file or 'docker-compose.prod.yml' }}" class="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 font-mono text-sm outline-none focus:border-slate-400 focus:bg-white">
+                </label>
+                <label class="block">
+                    <span class="mb-2 block text-sm font-medium text-slate-700">Compose 项目名（-p，可选）</span>
+                    <input type="text" name="prod_compose_project" value="{{ repo.prod_compose_project or '' }}" class="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 font-mono text-sm outline-none focus:border-slate-400 focus:bg-white" placeholder="留空=按工作目录名">
+                    <span class="mt-1 block text-xs text-slate-400">线上 stack 若用 -p/COMPOSE_PROJECT_NAME 起的，填对应项目名，否则会起出平行容器</span>
                 </label>
                 <label class="flex items-center gap-3">
                     <input type="checkbox" name="prod_run_migrations" {% if repo.prod_run_migrations %}checked{% endif %} class="h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-400">

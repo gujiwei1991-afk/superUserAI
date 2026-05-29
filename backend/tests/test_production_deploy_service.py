@@ -60,6 +60,7 @@ def _make_repo(**overrides):
     repo.prod_ssh_target = "deploy@prod.com"
     repo.prod_deploy_path = "/srv/prod/repo"
     repo.prod_compose_file = "docker-compose.prod.yml"
+    repo.prod_compose_project = None
     repo.prod_run_migrations = True
     for k, v in overrides.items():
         setattr(repo, k, v)
@@ -200,6 +201,54 @@ def test_deploy_merge_skips_alembic_when_run_migrations_false() -> None:
     print("deploy_merge skips alembic when prod_run_migrations false ok")
 
 
+def test_deploy_merge_includes_project_flag_when_set() -> None:
+    async def run():
+        svc = _make_service()
+        repo = _make_repo(prod_compose_project="oasys")
+        dev_task = _make_dev_task()
+        project = _make_project()
+        db = _make_db()
+        fake_proc = _fake_subprocess(returncode=0)
+
+        with patch("app.services.production_deploy_service.asyncio.create_subprocess_exec",
+                   AsyncMock(return_value=fake_proc)), \
+             patch("app.services.production_deploy_service.notify_creator_targeted",
+                   AsyncMock()):
+            await svc.deploy_merge(db, repo, project, dev_task,
+                                   merge_sha="sha1", pr_number=11)
+
+        script = fake_proc.communicate.await_args.args[0].decode()
+        # 项目名设了 → docker compose 命令带 -p oasys
+        assert "docker compose -p oasys -f docker-compose.prod.yml up -d --build" in script
+        assert "docker compose -p oasys -f docker-compose.prod.yml ps" in script
+    asyncio.run(run())
+    print("deploy_merge includes -p when compose_project set ok")
+
+
+def test_deploy_merge_omits_project_flag_when_unset() -> None:
+    async def run():
+        svc = _make_service()
+        repo = _make_repo(prod_compose_project=None)
+        dev_task = _make_dev_task()
+        project = _make_project()
+        db = _make_db()
+        fake_proc = _fake_subprocess(returncode=0)
+
+        with patch("app.services.production_deploy_service.asyncio.create_subprocess_exec",
+                   AsyncMock(return_value=fake_proc)), \
+             patch("app.services.production_deploy_service.notify_creator_targeted",
+                   AsyncMock()):
+            await svc.deploy_merge(db, repo, project, dev_task,
+                                   merge_sha="sha1", pr_number=11)
+
+        script = fake_proc.communicate.await_args.args[0].decode()
+        # 没设项目名 → 不带 -p，维持原行为
+        assert "-p " not in script
+        assert "docker compose -f docker-compose.prod.yml up -d --build" in script
+    asyncio.run(run())
+    print("deploy_merge omits -p when compose_project unset ok")
+
+
 def test_deploy_merge_nonzero_exit_marks_failed_and_notifies() -> None:
     async def run():
         svc = _make_service()
@@ -290,6 +339,8 @@ def main() -> None:
     test_deploy_merge_success_flips_to_acceptance_and_records_sha()
     test_deploy_merge_includes_alembic_when_run_migrations_true()
     test_deploy_merge_skips_alembic_when_run_migrations_false()
+    test_deploy_merge_includes_project_flag_when_set()
+    test_deploy_merge_omits_project_flag_when_unset()
     test_deploy_merge_nonzero_exit_marks_failed_and_notifies()
     test_deploy_merge_timeout_marks_failed()
     test_deploy_merge_bad_ssh_target()

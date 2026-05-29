@@ -159,6 +159,7 @@ backend 通过 SSH + `docker compose` 把 PR 部署到目标服务器，全程�
 | `staging_ssh_target` / `prod_ssh_target` | `user@host[:port]`，省略 user 用默认 `deploy` |
 | `staging_deploy_path` / `prod_deploy_path` | 服务器上仓库所在目录 |
 | `staging_compose_file` / `prod_compose_file` | compose 文件名，生产默认 `docker-compose.prod.yml` |
+| `staging_compose_project` / `prod_compose_project` | **compose 项目名（`-p`），可选**。线上既有 stack 若是用 `-p <名字>` 或 `COMPOSE_PROJECT_NAME` 起的，**必须填对应项目名**，否则部署会按"工作目录名"解析项目名、起出一套平行容器。留空则不带 `-p`。 |
 | `prod_run_migrations` | 勾选则生产部署后跑 `docker compose run --rm backend alembic upgrade head`；目标 compose 须有 `backend` service，否则关掉 |
 
 配好后合并一个 PR 即可验证整条链路；失败会私聊 creator 并告警所有管理员。

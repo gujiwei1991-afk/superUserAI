@@ -1442,6 +1442,7 @@ async def update_repo_staging(
     repo.staging_compose_file = (
         form.get("staging_compose_file", "").strip() or "docker-compose.staging.yml"
     )
+    repo.staging_compose_project = form.get("staging_compose_project", "").strip() or None
     await db.commit()
     return RedirectResponse(
         url=f"/admin/projects/{repo_id}?message={quote_plus('Staging 部署配置已更新。')}&message_type=success",
@@ -1467,6 +1468,7 @@ async def update_repo_prod(
     repo.prod_compose_file = (
         form.get("prod_compose_file", "").strip() or "docker-compose.prod.yml"
     )
+    repo.prod_compose_project = form.get("prod_compose_project", "").strip() or None
     repo.prod_run_migrations = form.get("prod_run_migrations") == "on"
     await db.commit()
     return RedirectResponse(

@@ -207,14 +207,20 @@ class StagingDeployService:
             ssh_args += ["-p", str(port)]
         ssh_args += [f"{user}@{host}", "bash", "-s"]
 
+        compose_file = shlex.quote(repo.staging_compose_file)
+        project_name = (repo.staging_compose_project or "").strip()
+        compose = "docker compose"
+        if project_name:
+            compose += f" -p {shlex.quote(project_name)}"
+        compose += f" -f {compose_file}"
         remote_script = (
             "set -euo pipefail\n"
             f"cd {shlex.quote(repo.staging_deploy_path)}\n"
             f"git fetch origin pull/{int(pr_number)}/head:pr-{int(pr_number)}\n"
             f"git checkout -f pr-{int(pr_number)}\n"
             f"git reset --hard {shlex.quote(head_sha)}\n"
-            f"docker compose -f {shlex.quote(repo.staging_compose_file)} up -d --build\n"
-            f"docker compose -f {shlex.quote(repo.staging_compose_file)} ps\n"
+            f"{compose} up -d --build\n"
+            f"{compose} ps\n"
         )
 
         proc = await asyncio.create_subprocess_exec(

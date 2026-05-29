@@ -81,6 +81,7 @@ def _make_repo(**overrides):
     repo.staging_ssh_target = "deploy@server.com"
     repo.staging_deploy_path = "/srv/staging/repo"
     repo.staging_compose_file = "docker-compose.staging.yml"
+    repo.staging_compose_project = None
     for k, v in overrides.items():
         setattr(repo, k, v)
     return repo
@@ -181,6 +182,50 @@ def test_deploy_pr_success_updates_state_and_notifies() -> None:
         assert "deploy@server.com" in ssh_args
     asyncio.run(run())
     print("deploy_pr success path ok")
+
+
+def test_deploy_pr_includes_project_flag_when_set() -> None:
+    async def run():
+        svc = _make_service()
+        repo = _make_repo(staging_compose_project="myproj")
+        dev_task = _make_dev_task()
+        project = _make_project()
+        db = _make_db()
+        fake_proc = _fake_subprocess(returncode=0)
+
+        with patch("app.services.staging_deploy_service.asyncio.create_subprocess_exec",
+                   AsyncMock(return_value=fake_proc)), \
+             patch("app.services.staging_deploy_service.notify_creator_targeted",
+                   AsyncMock()):
+            await svc.deploy_pr(db, repo, project, dev_task, pr_number=3, head_sha="abcdef")
+
+        script = fake_proc.communicate.await_args.args[0].decode()
+        assert "docker compose -p myproj -f docker-compose.staging.yml up -d --build" in script
+        assert "docker compose -p myproj -f docker-compose.staging.yml ps" in script
+    asyncio.run(run())
+    print("deploy_pr includes -p when compose_project set ok")
+
+
+def test_deploy_pr_omits_project_flag_when_unset() -> None:
+    async def run():
+        svc = _make_service()
+        repo = _make_repo(staging_compose_project=None)
+        dev_task = _make_dev_task()
+        project = _make_project()
+        db = _make_db()
+        fake_proc = _fake_subprocess(returncode=0)
+
+        with patch("app.services.staging_deploy_service.asyncio.create_subprocess_exec",
+                   AsyncMock(return_value=fake_proc)), \
+             patch("app.services.staging_deploy_service.notify_creator_targeted",
+                   AsyncMock()):
+            await svc.deploy_pr(db, repo, project, dev_task, pr_number=3, head_sha="abcdef")
+
+        script = fake_proc.communicate.await_args.args[0].decode()
+        assert "-p " not in script
+        assert "docker compose -f docker-compose.staging.yml up -d --build" in script
+    asyncio.run(run())
+    print("deploy_pr omits -p when compose_project unset ok")
 
 
 def test_deploy_pr_nonzero_exit_marks_failed_and_notifies() -> None:
@@ -443,6 +488,8 @@ def main() -> None:
     test_deploy_pr_skips_when_staging_url_missing()
     test_deploy_pr_skips_when_ssh_target_missing()
     test_deploy_pr_success_updates_state_and_notifies()
+    test_deploy_pr_includes_project_flag_when_set()
+    test_deploy_pr_omits_project_flag_when_unset()
     test_deploy_pr_nonzero_exit_marks_failed_and_notifies()
     test_deploy_pr_timeout_kills_and_marks_failed()
     test_deploy_pr_bad_ssh_target_marks_failed()
