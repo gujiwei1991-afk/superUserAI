@@ -135,6 +135,31 @@ async def notify_creator_targeted(
         )
 
 
+async def notify_admins(
+    db: AsyncSession,
+    wechat: WeChatClient,
+    body: str,
+) -> int:
+    """私聊所有管理员（role=='admin' 且绑定了 wechat_user_id）。
+
+    用于运维告警（如部署失败）。尽力而为：单个发送失败只记录日志，
+    不影响其余管理员；返回成功投递的人数。
+    """
+    stmt = select(User).where(
+        User.role == "admin",
+        User.wechat_user_id.is_not(None),
+    )
+    admins = list((await db.execute(stmt)).scalars().all())
+    sent = 0
+    for admin in admins:
+        try:
+            await wechat.send_text(admin.wechat_user_id, body)
+            sent += 1
+        except Exception:
+            logger.exception("notify_admins failed admin=%s", admin.wechat_user_id)
+    return sent
+
+
 async def notify_creator_approved(
     db: AsyncSession,
     wechat: WeChatClient,

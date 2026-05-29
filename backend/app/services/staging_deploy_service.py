@@ -14,7 +14,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from shared.constants import ProjectStatus
-from app.services.project_review import notify_creator_targeted
+from app.services.project_review import notify_admins, notify_creator_targeted
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -322,3 +322,13 @@ class StagingDeployService:
             await notify_creator_targeted(db, self.wechat_client, project, body)
         except Exception:
             logger.exception("staging notify failure failed project=%s", project.id)
+        # 运维告警：staging 部署失败一律私聊管理员。
+        try:
+            admin_body = (
+                f"🚨 测试环境部署失败 project_id={project.id}《{project.title}》\n"
+                f"PR #{pr_number}\n\n"
+                f"错误摘要：\n{summary}"
+            )
+            await notify_admins(db, self.wechat_client, admin_body)
+        except Exception:
+            logger.exception("staging notify admins failed project=%s", project.id)

@@ -21,7 +21,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from shared.constants import ProjectStatus
-from app.services.project_review import notify_creator_targeted
+from app.services.project_review import notify_admins, notify_creator_targeted
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -330,6 +330,16 @@ class ProductionDeployService:
             await notify_creator_targeted(db, self.wechat_client, project, body)
         except Exception:
             logger.exception("prod notify failure failed project=%s", project.id)
+        # 运维告警：生产部署失败一律私聊管理员，便于及时介入。
+        try:
+            admin_body = (
+                f"🚨 生产部署失败 project_id={project.id}《{project.title}》\n"
+                f"PR #{pr_number}\n\n"
+                f"错误摘要：\n{summary}"
+            )
+            await notify_admins(db, self.wechat_client, admin_body)
+        except Exception:
+            logger.exception("prod notify admins failed project=%s", project.id)
 
     async def recover_stale_deploys(self, stale_after_sec: int = 1800) -> int:
         """Mark any dev_task stuck in prod 'deploying' for > stale_after_sec as failed."""

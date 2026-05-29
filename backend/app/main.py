@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.api.admin import router as admin_router
+from app.api.monitoring import router as monitoring_router
 from app.api.tasks import router as tasks_router
 from app.api.webhooks import router as webhooks_router
 from app.database import close_db, init_db
@@ -71,8 +72,13 @@ app.include_router(admin_router)
 app.include_router(wechat_router)
 app.include_router(tasks_router)
 app.include_router(webhooks_router)
+app.include_router(monitoring_router)
 
 
 @app.get("/health")
 async def health() -> dict[str, str]:
+    """存活探针（liveness）：进程在跑就返回 ok，不查任何下游依赖。
+
+    就绪探针（readiness，含数据库连通）见 GET /healthz。
+    """
     return {"status": "ok"}
