@@ -21,6 +21,22 @@ dependencies = [
     "jinja2>=3.1,<4.0",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0,<10.0",
+    "pytest-cov>=5.0,<7.0",
+]
+
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["app*"]
+
+[tool.pytest.ini_options]
+# 仅收集 tests/ 下的单元测试（test_*.py）。
+# e2e_*.py 是需要真实 DB/网络的手动冒烟脚本，文件名不匹配 python_files，故 pytest 自动跳过。
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+# 让 `app.*` 与 `shared.*` 无需在每个测试文件里手动 sys.path.insert 即可导入。
+pythonpath = [".", "../shared"]
+addopts = "-q --strict-markers"

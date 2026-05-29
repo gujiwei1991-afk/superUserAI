@@ -23,6 +23,7 @@ pip-wheel-metadata/
 .vscode/
 node_modules/
 .playwright-mcp/
+.DS_Store
 *.md.bak
 task_plan.md
 findings.md
