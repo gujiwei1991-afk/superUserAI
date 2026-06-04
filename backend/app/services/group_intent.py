@@ -8,6 +8,7 @@ from enum import Enum
 
 from app.agents.prompts.intent_prompts import render_confirm_verify_prompt
 from app.config import get_settings
+from app.services.confirm_heuristics import is_confirmation_subject
 
 logger = logging.getLogger(__name__)
 
@@ -34,27 +35,8 @@ class IntentResult:
 
 
 # Keyword sets — adjust freely; tests pin the *behavior*, not exact words.
-# These get the message into the CONFIRM_CANDIDATE bucket; LLM verifier has
-# the final say so being generous here is fine.
-_CONFIRM_WORDS = (
-    "确认",
-    "通过",
-    "同意",
-    "可以了",
-    "开发吧",
-    "没问题",
-    "就这样",
-    "ok 了",
-    "好了就这",
-    "可以开始",
-    "做吧",
-    "嗯好",
-    "好的就这",
-    "这就开发",
-    "可以开发",
-    "提交吧",
-    "提交审核",
-)
+# 确认词集 + "消息主体是否就是确认"的判定已抽到 confirm_heuristics
+# (is_confirmation_subject),严格取向:长需求文本夹带确认子串不算。
 _MODIFY_WORDS = ("改", "调", "不对", "重新", "再")
 _STATUS_WORDS = ("进度", "状态", "到哪", "怎么样", "进展")
 
@@ -117,11 +99,13 @@ class GroupIntentClassifier:
         ):
             return IntentResult(intent=Intent.MODIFY, content_for_handler=text)
 
-        # 6. CONFIRM candidate: active drafting/reviewing + confirm word -> LLM verify.
+        # 6. CONFIRM candidate: active drafting/reviewing + 消息主体是确认 -> LLM verify.
+        # 严格门槛:长需求文本里夹带"确认"子串不算(is_confirmation_subject),
+        # 避免"装备确认中，增加一列规格…"被误判 confirm、提前生成 PRD。
         if (
             active_id is not None
             and proj_status in {"drafting", "reviewing"}
-            and any(kw in text for kw in _CONFIRM_WORDS)
+            and is_confirmation_subject(text)
         ):
             verified = await self._verify_confirm_with_llm(
                 summary=getattr(project, "prd_content", None) or "",
