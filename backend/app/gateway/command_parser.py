@@ -20,14 +20,11 @@ def parse_command(content: str) -> Command:
 
     match command_name:
         case "#新需求" | "#new":
+            # 始终按"新需求"意图返回,缺仓库名/需求就传空值,交 _handle_new_project
+            # 统一校验并给友好提示;不再静默降级成 chat(否则会撞状态拦截、报无关错)。
             repo_and_desc = remainder.split(maxsplit=1)
-            if len(repo_and_desc) != 2:
-                return Command(type="chat", args={"content": content})
-
-            repo, desc = repo_and_desc
-            if not repo or not desc:
-                return Command(type="chat", args={"content": content})
-
+            repo = repo_and_desc[0] if repo_and_desc else ""
+            desc = repo_and_desc[1] if len(repo_and_desc) == 2 else ""
             return Command(type="new_project", args={"repo": repo, "desc": desc})
         case "#确认":
             return Command(type="confirm")

@@ -121,11 +121,18 @@ class MessageHandler:
         repo_name = str(command.args.get("repo", "")).strip()
         desc = str(command.args.get("desc", "")).strip()
         if not repo_name or not desc:
-            return "新需求指令格式不正确，请使用：#新需求 <仓库> <需求描述>"
+            return (
+                "「#新需求」要带上仓库名，格式：#新需求 <仓库> <需求>\n"
+                "例：#新需求 oaSys 给装备管理加个规格列\n"
+                "不知道有哪些仓库？发 #我的仓库 看看你能提需求的仓库。"
+            )
 
         repo = await self.project_service.get_repo_by_name(repo_name)
         if repo is None:
-            return f"未找到仓库「{repo_name}」，请检查仓库别名后重试。"
+            return (
+                f"未找到仓库「{repo_name}」。发 #我的仓库 看看你能提需求的仓库别名，"
+                "再用「#新需求 <仓库> <需求>」重发。"
+            )
 
         if not await self._user_can_access_repo(user, repo.id):
             return (
