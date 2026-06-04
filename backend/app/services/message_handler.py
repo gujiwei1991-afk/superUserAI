@@ -69,6 +69,8 @@ class MessageHandler:
                     reply = await self._handle_status(user, session)
                 case "list":
                     reply = await self._handle_list(user, session)
+                case "switch":
+                    reply = await self._handle_switch(user, session, command)
                 case "my_repos":
                     reply = await self._handle_my_repos(user)
                 case "help":
@@ -109,6 +111,26 @@ class MessageHandler:
                 )
 
         return reply
+
+    async def _handle_switch(
+        self,
+        user: User,
+        session: UserSession,
+        command: Command,
+    ) -> str:
+        pid = command.args.get("project_id")
+        if pid is None:
+            return "用法：#切换 <项目ID>，比如 #切换 12。发 #列表 看你的项目和 ID。"
+        project = await self.project_service.get_project(pid)
+        if project is None or project.creator_id != user.id:
+            return f"没找到属于你的项目 #{pid}。发 #列表 看看你的项目。"
+        await self.session_manager.update_session_state(
+            session, SessionState.CHATTING, project.id
+        )
+        return (
+            f"已切换到 [{pid}] {project.title}（{self._status_label(project.status)}）。\n"
+            "现在可以直接说要改/加什么。"
+        )
 
     async def _handle_new_project(
         self,
