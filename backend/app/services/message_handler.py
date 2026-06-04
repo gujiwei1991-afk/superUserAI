@@ -209,6 +209,15 @@ class MessageHandler:
         if session.state == SessionState.SCORING.value:
             return "当前项目正在等待评分，请发送 #评分 <1-10> <反馈>。"
 
+        if project.status == ProjectStatus.COMPLETED.value:
+            # 已完成项目下的零碎消息(未达开新轮门槛):友好引导,不冷拒。
+            # 够实质的新需求会在意图层直接开新一轮,不会走到这里。
+            return (
+                "这个项目已经完成啦～想做点新东西，直接把要做的说清楚点就行"
+                "（比如“加个颜色筛选，能按颜色筛装备”），我帮你开新一轮；"
+                "也可以发「#新需求 <仓库> <需求>」。"
+            )
+
         if project.status != ProjectStatus.DRAFTING.value:
             return f"当前项目状态为「{self._status_label(project.status)}」，不在需求沟通阶段，请发送 #状态 查看进度。"
 

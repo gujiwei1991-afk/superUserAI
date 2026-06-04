@@ -9,6 +9,7 @@ from enum import Enum
 from app.agents.prompts.intent_prompts import render_confirm_verify_prompt
 from app.config import get_settings
 from app.services.confirm_heuristics import is_confirmation_subject
+from app.services.intent_heuristics import is_substantive_request
 
 logger = logging.getLogger(__name__)
 
@@ -122,6 +123,11 @@ class GroupIntentClassifier:
 
         # 7. NEW_PROJECT: no active project.
         if active_id is None:
+            return IntentResult(intent=Intent.NEW_PROJECT, content_for_handler=text)
+
+        # 7.5 已完成项目 + 实质新需求 → 自动开新一轮(绑定群仓库现成)。
+        # 旧需求已上线,用户再提改动即新一轮;闲聊(太短)落 CHAT 给友好引导。
+        if proj_status == "completed" and is_substantive_request(text):
             return IntentResult(intent=Intent.NEW_PROJECT, content_for_handler=text)
 
         # 8. Default: CHAT.
