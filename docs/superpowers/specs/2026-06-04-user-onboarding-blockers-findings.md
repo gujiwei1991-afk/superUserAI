@@ -2,7 +2,10 @@
 
 - 日期：2026-06-04
 - 来源：升级雷达真机验证时意外发现，PMAgent 升级雷达代码已上线但消息一次都没走到它
-- 状态：待设计修复（用户已决定转修）
+- 状态：2026-06-04 已全部修复 — C/B 真机验证通过；A 组件验证通过（端到端真机待 completed 场景复现）
+  - C 意图误判 → commit `d76a5ad`（confirm_heuristics + 严格 prompt）
+  - B 命令降级 → commit `f6c21f7`（command_parser 不再静默降级 + 友好提示）
+  - A 状态机承接 → commit `9e62efd`（intent_heuristics + completed 自动开新轮）
 
 ## 背景
 
