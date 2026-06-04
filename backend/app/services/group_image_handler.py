@@ -112,7 +112,7 @@ class GroupImageHandler:
             )
             await self._reply_at(
                 group_id, wechat_user_id,
-                f"@{wechat_user_id} 刚才那张图我读不到（{exc.short}），"
+                f"刚才那张图我读不到（{exc.short}），"
                 "能用文字补充一下吗？",
             )
             return
@@ -136,7 +136,8 @@ class GroupImageHandler:
             hint = self.handler.pm_agent.build_confirm_hint()
             ai_reply = (cleaned + hint) if cleaned else hint.lstrip()
 
-        await self._reply_at(group_id, wechat_user_id, f"@{wechat_user_id} {ai_reply}")
+        # @ 提及交给 at_list 渲染,msg 内不再手动拼 @(否则会重复 @)。
+        await self._reply_at(group_id, wechat_user_id, ai_reply)
 
     async def _reply_at(self, group_id: str, sender_id: str, msg: str) -> None:
         try:

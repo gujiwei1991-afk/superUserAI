@@ -35,6 +35,7 @@ class MessageHandler:
         wechat_user_id: str,
         command: Command,
         group_id: str | None = None,
+        send: bool = True,
     ) -> str:
         reply = "抱歉，当前处理消息时出现异常，请稍后再试。"
         user: User | None = None
@@ -89,13 +90,13 @@ class MessageHandler:
             hint = self.pm_agent.build_confirm_hint()
             reply = (cleaned + hint) if cleaned else hint.lstrip()
 
-        if reply:
+        if reply and send:
             try:
                 if group_id:
-                    # vworkApi 不会自动给 msg 拼 @昵称,我们手动加上让接收者视觉确认
-                    at_label = (user.nickname if user else None) or wechat_user_id
+                    # @ 提及交给 vworkApi 的 at_list 渲染,msg 内不再手动拼 @昵称
+                    # (否则群里会出现 chip + 文本两个 @,即重复 @)。
                     await self.wechat.send_at_group(
-                        group_id, [wechat_user_id], f"@{at_label} {reply}"
+                        group_id, [wechat_user_id], reply
                     )
                 else:
                     await self.wechat.send_text(wechat_user_id, reply)

@@ -126,9 +126,9 @@ class GroupMessageRouter:
             reply = (cleaned + hint) if cleaned else hint.lstrip()
 
         try:
-            at_label = (getattr(user, "nickname", None) or wechat_user_id)
+            # @ 提及交给 at_list 渲染,msg 内不再手动拼 @昵称(否则会重复 @)。
             await self.wechat.send_at_group(
-                group_id, [wechat_user_id], f"@{at_label} {reply}"
+                group_id, [wechat_user_id], reply
             )
         except Exception:
             logger.exception(
@@ -150,9 +150,13 @@ class GroupMessageRouter:
         match result.intent:
             case Intent.LEGACY_COMMAND:
                 # Fall back to existing parse_command + MessageHandler flow.
+                # send=False: handle() 只返回文本,不自己发送 —— 由 _handle_bound
+                # 统一发送一次,避免 LEGACY_COMMAND 被双发(handle 内 + _handle_bound)。
                 cmd = parse_command(result.content_for_handler)
                 return (
-                    await self.handler.handle(wechat_user_id, cmd, group_id=group_id)
+                    await self.handler.handle(
+                        wechat_user_id, cmd, group_id=group_id, send=False
+                    )
                     or ""
                 )
             case Intent.OTHER:

@@ -115,15 +115,13 @@ async def notify_creator_targeted(
     if creator is None or not creator.wechat_user_id:
         return
 
-    creator_label = creator.nickname or creator.wechat_user_id
     try:
         if project.wechat_group_id:
-            # 群消息: msg 里手动拼上 @昵称 让接收者看到提示,at_list 触发企微高亮通知
-            text = f"@{creator_label} {body}"
+            # 群消息: @ 提及交给 at_list 渲染,msg 内不再手动拼 @(否则会重复 @)。
             await wechat.send_at_group(
                 project.wechat_group_id,
                 [creator.wechat_user_id],
-                text,
+                body,
             )
         else:
             await wechat.send_text(creator.wechat_user_id, body)
