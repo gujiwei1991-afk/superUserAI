@@ -71,6 +71,8 @@ class MessageHandler:
                     reply = await self._handle_list(user, session)
                 case "switch":
                     reply = await self._handle_switch(user, session, command)
+                case "close_project":
+                    reply = await self._handle_close_project(user, session, command)
                 case "my_repos":
                     reply = await self._handle_my_repos(user)
                 case "help":
@@ -131,6 +133,35 @@ class MessageHandler:
             f"已切换到 [{pid}] {project.title}（{self._status_label(project.status)}）。\n"
             "现在可以直接说要改/加什么。"
         )
+
+    async def _handle_close_project(
+        self,
+        user: User,
+        session: UserSession,
+        command: Command,
+    ) -> str:
+        pid = command.args.get("project_id")
+        if pid is None:
+            return "用法：#关闭 <项目ID>，比如 #关闭 12。发 #列表 看你的项目和 ID。"
+        project = await self.project_service.get_project(pid)
+        if project is None or (project.creator_id != user.id and user.role != "admin"):
+            return f"没找到属于你的项目 #{pid}。发 #列表 看看你的项目。"
+        closable = {
+            ProjectStatus.DRAFTING.value,
+            ProjectStatus.REVIEWING.value,
+            ProjectStatus.REJECTED.value,
+        }
+        if project.status not in closable:
+            return (
+                f"项目 #{pid} 当前状态为「{self._status_label(project.status)}」，"
+                "已进入开发或已结束，不能关闭。"
+            )
+        await self.project_service.update_status(project, ProjectStatus.CLOSED)
+        if session.active_project_id == project.id:
+            await self.session_manager.update_session_state(
+                session, SessionState.IDLE, None
+            )
+        return f"已关闭需求 [{pid}] {project.title}，这个需求作废、不再继续。"
 
     async def _handle_new_project(
         self,
@@ -517,6 +548,8 @@ class MessageHandler:
 
     async def _handle_list(self, user: User, session: UserSession) -> str:
         projects = await self.project_service.get_user_projects(user.id)
+        # 已关闭(作废)的项目不再展示。
+        projects = [p for p in projects if p.status != ProjectStatus.CLOSED.value]
         if not projects:
             return "你还没有创建过项目，发送 #新需求 <仓库> <需求描述> 开始第一条需求。"
 
@@ -740,5 +773,6 @@ class MessageHandler:
             ProjectStatus.ACCEPTANCE.value: "待验收",
             ProjectStatus.COMPLETED.value: "已完成",
             ProjectStatus.REJECTED.value: "已驳回",
+            ProjectStatus.CLOSED.value: "已关闭",
         }
         return labels.get(status, status)

@@ -74,6 +74,10 @@ def parse_command(content: str) -> Command:
             raw = remainder.strip().lstrip("#").strip()
             pid = int(raw) if raw.isdigit() else None
             return Command(type="switch", args={"project_id": pid})
+        case "#关闭" | "#close":
+            raw = remainder.strip().lstrip("#").strip()
+            pid = int(raw) if raw.isdigit() else None
+            return Command(type="close_project", args={"project_id": pid})
         case "#我的仓库" | "#repos":
             return Command(type="my_repos")
         case "#帮助" | "#help":

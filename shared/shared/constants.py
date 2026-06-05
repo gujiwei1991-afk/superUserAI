@@ -11,6 +11,7 @@ class ProjectStatus(str, Enum):
     ACCEPTANCE = "acceptance"
     COMPLETED = "completed"
     REJECTED = "rejected"
+    CLOSED = "closed"
 
 
 class SessionState(str, Enum):
