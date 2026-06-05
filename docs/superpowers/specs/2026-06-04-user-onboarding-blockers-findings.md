@@ -2,10 +2,11 @@
 
 - 日期：2026-06-04
 - 来源：升级雷达真机验证时意外发现，PMAgent 升级雷达代码已上线但消息一次都没走到它
-- 状态：2026-06-04 已全部修复 — C/B 真机验证通过；A 组件验证通过（端到端真机待 completed 场景复现）
-  - C 意图误判 → commit `d76a5ad`（confirm_heuristics + 严格 prompt）
-  - B 命令降级 → commit `f6c21f7`（command_parser 不再静默降级 + 友好提示）
-  - A 状态机承接 → commit `9e62efd`（intent_heuristics + completed 自动开新轮）
+- 状态：2026-06-04 全部修复，2026-06-06 真机验证全通过（含 A 端到端：用 #切换 切到 completed 项目发新需求 → intent=new_project，自动开新一轮）
+  - C 意图误判：confirm_heuristics + 严格 prompt
+  - B 命令降级：command_parser 不再静默降级 + 友好提示
+  - A 状态机承接：intent_heuristics + completed 自动开新轮；新增 `#切换 <ID>` 命令（切换激活项目，兼作 A 验证手段）
+  - 注：commit hash 因 2026-06-06 规范署名 rebase 已变，以 commit message 检索
 
 ## 背景
 
