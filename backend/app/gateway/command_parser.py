@@ -9,6 +9,15 @@ class Command:
     args: dict[str, object] = field(default_factory=dict)
 
 
+def _parse_id_and_text(remainder: str) -> tuple[int | None, str]:
+    """把 '<ID> <文本...>' 拆成 (项目ID, 文本)。ID 非数字/缺失 → None;文本可空。"""
+    parts = remainder.split(maxsplit=1)
+    raw_id = parts[0].lstrip("#") if parts else ""
+    pid = int(raw_id) if raw_id.isdigit() else None
+    text = parts[1].strip() if len(parts) == 2 else ""
+    return pid, text
+
+
 def parse_command(content: str) -> Command:
     content = content.strip()
     if not content.startswith("#"):
@@ -78,6 +87,15 @@ def parse_command(content: str) -> Command:
             raw = remainder.strip().lstrip("#").strip()
             pid = int(raw) if raw.isdigit() else None
             return Command(type="close_project", args={"project_id": pid})
+        case "#补充" | "#supplement":
+            pid, text = _parse_id_and_text(remainder)
+            return Command(type="supplement", args={"project_id": pid, "content": text})
+        case "#改需求" | "#revise":
+            pid, text = _parse_id_and_text(remainder)
+            return Command(type="revise_prd", args={"project_id": pid, "content": text})
+        case "#打回" | "#sendback":
+            pid, text = _parse_id_and_text(remainder)
+            return Command(type="send_back", args={"project_id": pid, "content": text})
         case "#我的仓库" | "#repos":
             return Command(type="my_repos")
         case "#帮助" | "#help":
