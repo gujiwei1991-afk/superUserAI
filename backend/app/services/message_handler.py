@@ -14,6 +14,7 @@ from app.services.project_review import (
     create_issue_for_project,
     notify_creator_approved,
     notify_creator_rejected,
+    notify_creator_targeted,
 )
 from app.services.project_service import ProjectService
 from app.services.session_manager import SessionManager
@@ -73,6 +74,12 @@ class MessageHandler:
                     reply = await self._handle_switch(user, session, command)
                 case "close_project":
                     reply = await self._handle_close_project(user, session, command)
+                case "supplement":
+                    reply = await self._handle_supplement(user, command)
+                case "revise_prd":
+                    reply = await self._handle_revise_prd(user, command)
+                case "send_back":
+                    reply = await self._handle_send_back(user, command)
                 case "my_repos":
                     reply = await self._handle_my_repos(user)
                 case "help":
@@ -162,6 +169,107 @@ class MessageHandler:
                 session, SessionState.IDLE, None
             )
         return f"已关闭需求 [{pid}] {project.title}，这个需求作废、不再继续。"
+
+    async def _load_admin_target(
+        self, user: User, pid: int
+    ) -> tuple[Project | None, str]:
+        """管理员定向命令公共校验:admin 权限 + 按 ID 取项目。
+        返回 (project, error);error 非空表示未过校验,project 为 None。
+        pid 缺失(None)由各 handler 自行出定制用法提示,不进此函数。"""
+        if user.role != "admin":
+            return None, "只有管理员可以使用该命令。"
+        project = await self.project_service.get_project(pid)
+        if project is None:
+            return None, f"找不到项目 #{pid}。"
+        return project, ""
+
+    async def _handle_supplement(self, user: User, command: Command) -> str:
+        pid = command.args.get("project_id")
+        content = str(command.args.get("content", "")).strip()
+        if pid is None or not content:
+            return "用法：#补充 <项目ID> <补充内容>，比如 #补充 12 送餐箱要支持 30/45/62L 三种规格。"
+        project, err = await self._load_admin_target(user, pid)
+        if err:
+            return err
+        if project.status != ProjectStatus.DRAFTING.value:
+            return (
+                f"项目 #{pid} 当前状态为「{self._status_label(project.status)}」，已过沟通阶段。"
+                "要调整方案用 #改需求 <ID> <说明>，要打回重聊用 #打回 <ID> <说明>。"
+            )
+        await self.project_service.add_message(
+            project.id, user.wechat_user_id, "user", f"【管理员补充】{content}"
+        )
+        await notify_creator_targeted(
+            self.db,
+            self.wechat,
+            project,
+            f"管理员补充了一条需求说明：「{content}」。你继续在群里说时，我会带上这条一起理解；"
+            f"若已切到别的需求，发 #切换 {pid} 回到这个需求继续。",
+        )
+        return f"已把补充写入需求 [{pid}] {project.title}，提出人下次沟通时机器人会带上。"
+
+    async def _handle_revise_prd(self, user: User, command: Command) -> str:
+        pid = command.args.get("project_id")
+        content = str(command.args.get("content", "")).strip()
+        if pid is None or not content:
+            return "用法：#改需求 <项目ID> <修改说明>，比如 #改需求 12 增加一节『权限矩阵』。"
+        project, err = await self._load_admin_target(user, pid)
+        if err:
+            return err
+        if not project.prd_content or project.status != ProjectStatus.REVIEWING.value:
+            return (
+                f"项目 #{pid} 当前状态为「{self._status_label(project.status)}」，"
+                "不在待审核阶段，无法改方案。"
+            )
+        repo = await self.db.get(Repo, project.repo_id) if project.repo_id else None
+        if repo is None:
+            return f"项目 #{pid} 没有关联仓库，无法改方案。"
+        history = await self.project_service.get_messages(project.id)
+        await self.project_service.add_message(
+            project.id, user.wechat_user_id, "user", f"【管理员修改要求】{content}"
+        )
+        updated_prd = await self.pm_agent.modify_prd(
+            project, repo, history, project.prd_content, content
+        )
+        await self.project_service.save_prd(project, updated_prd)
+        await self.project_service.update_status(project, ProjectStatus.REVIEWING)
+        await self.project_service.add_message(
+            project.id, user.wechat_user_id, "assistant", "方案已按管理员要求更新。"
+        )
+        await self._notify_admins_for_review(project)
+        await notify_creator_targeted(
+            self.db,
+            self.wechat,
+            project,
+            f"管理员调整了你的需求《{project.title}》的方案，已重新生成、正在重新审核。",
+        )
+        return f"已按你的说明重写方案并重新送审：\n\n{updated_prd}"
+
+    async def _handle_send_back(self, user: User, command: Command) -> str:
+        pid = command.args.get("project_id")
+        content = str(command.args.get("content", "")).strip()
+        if pid is None or not content:
+            return "用法：#打回 <项目ID> <打回说明>，比如 #打回 12 头盔规格还没说清，请补充。"
+        project, err = await self._load_admin_target(user, pid)
+        if err:
+            return err
+        if project.status != ProjectStatus.REVIEWING.value:
+            return (
+                f"项目 #{pid} 当前状态为「{self._status_label(project.status)}」，"
+                "不在待审核阶段，无法打回。"
+            )
+        await self.project_service.update_status(project, ProjectStatus.DRAFTING)
+        await self.project_service.add_message(
+            project.id, user.wechat_user_id, "user", f"【管理员打回】{content}"
+        )
+        await notify_creator_targeted(
+            self.db,
+            self.wechat,
+            project,
+            f"管理员把需求《{project.title}》打回继续完善，意见：{content}。"
+            f"发 #切换 {pid} 回到这个需求，按意见补充后再回复『确认』重新提交。",
+        )
+        return f"已打回需求 [{pid}] {project.title} 给提出人继续完善。"
 
     async def _handle_new_project(
         self,
