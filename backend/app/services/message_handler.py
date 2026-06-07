@@ -365,7 +365,7 @@ class MessageHandler:
             return error_reply or "当前没有可继续沟通的项目，请先发送 #新需求。"
 
         if project.status == ProjectStatus.REVIEWING.value or session.state == SessionState.CONFIRMING.value:
-            return "当前方案已生成，如需调整请直接说『改一下…』，或回复『确认』提交审核。"
+            return "方案已生成并提交审核，正在等管理员审批～如需调整，直接说『改一下…』就行。"
 
         if session.state == SessionState.SCORING.value:
             return "当前项目正在等待评分，请发送 #评分 <1-10> <反馈>。"
