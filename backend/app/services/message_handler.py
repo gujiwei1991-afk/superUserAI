@@ -798,23 +798,7 @@ class MessageHandler:
             f"拒绝:#审核 {project.id} 拒绝 <理由>"
         )
 
-        # 如果项目来自群,直接发到群里(所有成员可见,免逐个私聊 admin)
-        if project.wechat_group_id:
-            try:
-                await self.wechat.send_text(project.wechat_group_id, body)
-                logger.info(
-                    "Sent review notification to group project=%s group=%s",
-                    project.id,
-                    project.wechat_group_id,
-                )
-                return
-            except Exception:
-                logger.exception(
-                    "notify_review to group failed; falling back to admin DMs project=%s group=%s",
-                    project.id,
-                    project.wechat_group_id,
-                )
-
+        # 送审通知一律私聊所有管理员(不再群发,避免待审 PRD 刷群)。
         stmt = select(User).where(
             User.role == "admin",
             User.wechat_user_id.is_not(None),

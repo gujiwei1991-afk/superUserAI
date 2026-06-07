@@ -153,12 +153,24 @@ class GroupMessageRouter:
                 # send=False: handle() 只返回文本,不自己发送 —— 由 _handle_bound
                 # 统一发送一次,避免 LEGACY_COMMAND 被双发(handle 内 + _handle_bound)。
                 cmd = parse_command(result.content_for_handler)
-                return (
+                reply = (
                     await self.handler.handle(
                         wechat_user_id, cmd, group_id=group_id, send=False
                     )
                     or ""
                 )
+                # 管理员命令的回执(含 PRD)私聊操作者,不刷群;
+                # 群里只留发给提出人的 @通知。
+                if cmd.type in {"supplement", "revise_prd", "send_back", "review"}:
+                    if reply:
+                        try:
+                            await self.wechat.send_text(wechat_user_id, reply)
+                        except Exception:
+                            logger.exception(
+                                "admin reply DM failed sender=%s", wechat_user_id
+                            )
+                    return ""
+                return reply
             case Intent.OTHER:
                 return ""
             case Intent.NEW_PROJECT:
