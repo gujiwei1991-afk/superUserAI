@@ -20,6 +20,8 @@ def _parse_id_and_text(remainder: str) -> tuple[int | None, str]:
 
 def parse_command(content: str) -> Command:
     content = content.strip()
+    # 兼容中文输入法:全角井号→半角,全角空格→半角(否则命令切不开、落 chat)
+    content = content.replace("＃", "#").replace("　", " ")
     if not content.startswith("#"):
         return Command(type="chat", args={"content": content})
 
