@@ -125,6 +125,11 @@ class GroupMessageRouter:
             hint = self.handler.pm_agent.build_confirm_hint()
             reply = (cleaned + hint) if cleaned else hint.lstrip()
 
+        # 群回复统一带 [#活跃项目ID],多人各自 active 不同项目时也能一眼对上。
+        pid = getattr(session, "active_project_id", None)
+        if pid is not None:
+            reply = f"[#{pid}] {reply}"
+
         try:
             # @ 提及交给 at_list 渲染,msg 内不再手动拼 @昵称(否则会重复 @)。
             await self.wechat.send_at_group(
