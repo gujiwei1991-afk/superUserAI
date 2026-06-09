@@ -777,6 +777,15 @@ class MessageHandler:
         project.status = ProjectStatus.REJECTED.value
         await self.db.flush()
         await self.db.refresh(project)
+        # 驳回后,若提出人的活跃项目正是这个被驳回项目,重置其会话(清掉卡住的 confirming),
+        # 否则提出人会一直收到"方案已提交审核,等审批"的误导提示。
+        creator = await self.db.get(User, project.creator_id)
+        if creator is not None:
+            creator_session = await self.session_manager.get_session(creator)
+            if creator_session.active_project_id == project.id:
+                await self.session_manager.update_session_state(
+                    creator_session, SessionState.IDLE, None
+                )
         await notify_creator_rejected(self.db, self.wechat, project, reason)
         return f"已拒绝项目 #{project.id}。"
 
